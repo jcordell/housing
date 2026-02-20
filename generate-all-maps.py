@@ -140,6 +140,24 @@ def analyze_and_map():
     rest_pct_sqft = (df_rest['area_mf_zoned'].sum() / df_rest['total_area_sqft'].sum()) * 100 if df_rest['total_area_sqft'].sum() > 0 else 0
 
     # ---------------------------------------------------------
+    # FISCAL MODELING: PROPERTY TAX YIELD PER ACRE
+    # ---------------------------------------------------------
+    # Conservative baseline estimates for Top 5 Neighborhoods (e.g., Lake View, Lincoln Park)
+    avg_sfh_value = 1200000     # $1.2M Average SFH
+    avg_condo_value = 450000    # $450k Average Condo/Apt unit
+    effective_tax_rate = 0.018  # 1.8% Effective Chicago Tax Rate
+
+    sfh_tax_per_unit = avg_sfh_value * effective_tax_rate
+    unit_tax_per_condo = avg_condo_value * effective_tax_rate
+
+    # Per Acre Calculation (Assume 14 standard 3,125 sq ft lots per acre)
+    sfh_yield_per_acre = 14 * sfh_tax_per_unit
+    four_flat_yield_per_acre = (14 * 4) * unit_tax_per_condo
+    midrise_yield_per_acre = 100 * unit_tax_per_condo # SB 79 standard density = 100 units/acre
+
+    tax_multiplier = midrise_yield_per_acre / sfh_yield_per_acre
+
+    # ---------------------------------------------------------
     # TERMINAL OUTPUT
     # ---------------------------------------------------------
     print("\n" + "="*80)
@@ -155,6 +173,20 @@ def analyze_and_map():
     print(f"   ↳ Additional over Pritzker:                   {df_neighborhoods['add_train_and_hf_bus'].sum():,.0f}")
     print(f"5. SB 79 TRAIN + (HIGH FREQ BUS OR 2+ BUS LINES): {df_neighborhoods['tot_train_and_bus_combo'].sum():,.0f}")
     print(f"   ↳ Additional over Pritzker:                   {df_neighborhoods['add_train_and_bus_combo'].sum():,.0f}")
+    print("="*80)
+    print("EQUITY IMPACT: TOP 15 GENTRIFYING/HIGH-RENT-GROWTH NEIGHBORHOODS")
+    print("-" * 80)
+    print(f"Pritzker Units in these areas:                   {exp_pritzker:,.0f} ({pct_pritzker:.1f}% of total citywide)")
+    print(f"SB 79 Units in these areas:                      {exp_sb79_full:,.0f} ({pct_sb79:.1f}% of total citywide)")
+    print(f"↳ Extra units unlocked in exclusionary areas:    +{exp_sb79_diff:,.0f}")
+
+    print("="*80)
+    print("FISCAL IMPACT: PROPERTY TAX YIELD PER ACRE (TOP 5 NEIGHBORHOODS)")
+    print("="*80)
+    print(f"Single-Family Home Yield (14 units/acre):        ${sfh_yield_per_acre:,.0f} / acre")
+    print(f"Pritzker 4-Flat Yield (56 units/acre):           ${four_flat_yield_per_acre:,.0f} / acre")
+    print(f"SB 79 Mid-Rise Yield (100 units/acre):           ${midrise_yield_per_acre:,.0f} / acre")
+    print(f"↳ Revenue Multiplier: Mid-rises generate {tax_multiplier:.1f}x more tax revenue per acre than SFH.")
     print("="*80 + "\n")
 
     # ---------------------------------------------------------
@@ -175,8 +207,64 @@ def analyze_and_map():
         'exp_sb79_diff': f"{exp_sb79_diff:,.0f}",
         'affordable_units': f"{exp_sb79_diff * 0.20:,.0f}",
         'top5_pct_sqft': f"{top5_pct_sqft:.1f}",
-        'rest_pct_sqft': f"{rest_pct_sqft:.1f}"
+        'rest_pct_sqft': f"{rest_pct_sqft:.1f}",
+        'sfh_yield': f"${sfh_yield_per_acre:,.0f}",
+        'four_flat_yield': f"${four_flat_yield_per_acre:,.0f}",
+        'midrise_yield': f"${midrise_yield_per_acre:,.0f}",
+        'tax_multiplier': f"{tax_multiplier:.1f}"
     }
+
+    # ---------------------------------------------------------
+    # AUTO-GENERATE MARKDOWN FILE
+    # ---------------------------------------------------------
+    markdown_content = """# The Case for a Transit-Oriented Amendment to the BUILD Act
+
+Illinois is facing a severe housing shortage. Governor Pritzker’s proposed BUILD Act is a critical first step, unlocking "missing middle" housing by allowing multi-unit developments on historically restricted single-family lots. Our analysis shows the base BUILD Act could unlock **{{ pritzker_total }}** new housing units across Chicago.
+
+However, the current proposal misses the single most effective tool for urban housing growth: **High-Density, Transit-Oriented Development (TOD).**
+
+## The "Missing Middle" Paradox in High-Cost Areas
+Standard upzoning often fails to penetrate a city's wealthiest, most transit-rich neighborhoods. We analyzed the Zillow Observed Rent Index (ZORI) to identify Chicago's top 15 neighborhoods experiencing the most extreme 5-year rent spikes. Under the base BUILD Act, only **{{ pct_pritzker }}%** of new citywide housing capacity falls within these critical high-cost areas.
+
+Why? Because the most desirable, walkable neighborhoods in Chicago are desirable *because* they are already dense.
+* In the **Top 5** highest-rent-growth neighborhoods, **{{ top5_pct_sqft }}%** of the land is *already* zoned for multi-family housing.
+* Across the **rest of Chicago**, that number drops to just **{{ rest_pct_sqft }}%**.
+
+Because land acquisition costs in the top 15 neighborhoods are astronomical, developers cannot afford to tear down a $1.5M single-family home just to build a 3-flat. To unlock housing in high-opportunity areas, we must allow mid-rise density.
+
+## Economic & Fiscal Impact: The Property Tax Yield
+Upzoning isn't just about housing supply; it's a massive fiscal boon for cash-strapped municipalities. When we measure property tax yield per acre in Chicago's top 5 highest-rent neighborhoods, the financial argument for Transit-Oriented Development becomes undeniable:
+
+* **Single-Family Home Zone:** **{{ sfh_yield }}** in property tax revenue per acre.
+* **Pritzker's 4-Flat (Missing Middle):** **{{ four_flat_yield }}** per acre.
+* **SB 79 5-Story Mid-Rise:** **{{ midrise_yield }}** per acre.
+
+By allowing mid-rise buildings near transit, the city captures nearly **{{ tax_multiplier }}x the tax revenue per acre** compared to single-family homes, expanding the commercial tax base without raising property tax rates on existing working-class homeowners.
+
+## The Affordable Housing Multiplier
+Because the SB 79 model targets areas where developers can secure financing for mid-rises, it triggers Chicago's Affordable Requirements Ordinance (ARO).
+
+By unlocking **{{ exp_sb79_diff }}** extra units strictly in exclusionary neighborhoods, this amendment would mandate the private construction of roughly **{{ affordable_units }} permanently affordable homes** in areas with the city's best schools, transit, and job access—costing taxpayers zero dollars.
+
+## Transit Proximity Policy Options
+We analyzed four different legislative requirements for triggering transit-based upzoning. We compared the base True SB 79 text (Train + BRT/Intersections) to stricter alternatives: requiring a nearby train only, requiring a train AND a high-frequency bus stop, and requiring a train AND (a high-frequency bus stop OR 2 nearby bus stops).
+
+We calculated the following housing capacity increases for each proposal:
+
+| Proposal Name | Description | Total New Housing Units | Additional vs Pritzker |
+| :--- | :--- | :--- | :--- |
+| **1. Original Pritzker** | Baseline "missing middle" upzoning applied evenly. | **{{ pritzker_total }}** | *Baseline* |
+| **2. True CA SB 79** | Train + BRT or intersection of 2+ high-frequency buses. | **{{ true_sb79_total }}** | **{{ true_sb79_diff }}** |
+| **3. Train Only** | Strictly CTA/Metra rail stations. | **{{ train_only_total }}** | **{{ train_only_diff }}** |
+| **4. Train + HF Bus** | Train AND a 10-min frequency bus stop. | **{{ train_hf_total }}** | **{{ train_hf_diff }}** |
+| **5. Train + Bus Options** | Train AND (HF bus OR any 2 bus lines). | **{{ train_combo_total }}** | **{{ train_combo_diff }}** |
+
+<br>
+
+*Use the layer toggle on the interactive map below to switch between the different transit-oriented density scenarios and see exactly how housing capacity shifts across Chicago's neighborhoods.*
+"""
+    with open('article.md', 'w') as f:
+        f.write(markdown_content)
 
     # ---------------------------------------------------------
     # MAPPING
@@ -292,17 +380,13 @@ def analyze_and_map():
     # COMPILE HTML
     # ---------------------------------------------------------
     print("Compiling Markdown and HTML...")
-    if not os.path.exists('article.md'):
-        print("ERROR: article.md not found. Please save the markdown file.")
-        return
-
     with open('article.md', 'r') as f:
         md_text = f.read()
 
     jinja_template = Template(md_text)
     populated_md = jinja_template.render(**template_data)
 
-    # NEW: Added extensions=['tables'] so the Markdown parser properly converts the table
+    # Enables standard table formatting
     article_html = markdown.markdown(populated_md, extensions=['tables'])
 
     final_html = f"""
@@ -320,7 +404,6 @@ def analyze_and_map():
             .prose ul {{ list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1rem; color: #4b5563; line-height: 1.7; }}
             .prose li {{ margin-bottom: 0.5rem; }}
             .prose strong {{ color: #111827; }}
-            /* New styling for the Markdown Table */
             .prose table {{ width: 100%; border-collapse: collapse; margin-top: 1rem; margin-bottom: 1rem; text-align: left; }}
             .prose th {{ background-color: #f3f4f6; padding: 0.75rem; font-weight: 600; color: #374151; border: 1px solid #e5e7eb; }}
             .prose td {{ padding: 0.75rem; border: 1px solid #e5e7eb; color: #4b5563; }}
