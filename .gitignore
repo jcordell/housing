@@ -2,3 +2,4 @@
 *json
 *.html
 *.csv
+!index.html
