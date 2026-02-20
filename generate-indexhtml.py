@@ -410,6 +410,9 @@ We calculated the following housing capacity increases for each proposal:
 
     article_html = markdown.markdown(populated_md, extensions=['tables'])
 
+    # Make the table fully responsive by wrapping it in an overflow container dynamically
+    article_html = article_html.replace('<table>', '<div class="overflow-x-auto w-full"><table>').replace('</table>', '</table></div>')
+
     final_html = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -425,7 +428,7 @@ We calculated the following housing capacity increases for each proposal:
             .prose ul {{ list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1rem; color: #4b5563; line-height: 1.7; }}
             .prose li {{ margin-bottom: 0.5rem; }}
             .prose strong {{ color: #111827; }}
-            .prose table {{ width: 100%; border-collapse: collapse; margin-top: 1rem; margin-bottom: 1rem; text-align: left; }}
+            .prose table {{ width: 100%; border-collapse: collapse; margin-top: 1rem; margin-bottom: 1rem; text-align: left; min-width: 700px; }}
             .prose th {{ background-color: #f3f4f6; padding: 0.75rem; font-weight: 600; color: #374151; border: 1px solid #e5e7eb; }}
             .prose td {{ padding: 0.75rem; border: 1px solid #e5e7eb; color: #4b5563; }}
             .prose tr:nth-child(even) {{ background-color: #f9fafb; }}
