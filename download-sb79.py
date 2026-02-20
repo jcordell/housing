@@ -8,7 +8,6 @@ DATASETS = {
     'chicago_zoning.geojson': 'https://data.cityofchicago.org/api/geospatial/djph-xxwh?method=export&format=GeoJSON',
     'neighborhoods.geojson': 'https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON',
     'cta_stations.geojson': 'https://data.cityofchicago.org/api/geospatial/8pix-ypme?method=export&format=GeoJSON',
-    # CORRECTED: Updated the Socrata endpoint ID for the CTA Bus Routes
     'cta_bus_routes.geojson': 'https://data.cityofchicago.org/api/geospatial/6uva-a5ei?method=export&format=GeoJSON'
 }
 
@@ -46,7 +45,6 @@ def setup_database():
         if not os.path.exists(filename):
             print(f"⚠️  Skipping '{table_name}' because {filename} is missing.")
             continue
-
         try:
             con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM ST_Read('{filename}')")
             count = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
@@ -60,4 +58,4 @@ if __name__ == "__main__":
     for filename, url in DATASETS.items():
         download_file(filename, url)
     setup_database()
-    print("\n🚀 Ready! Now run: python3 generate-maps.py")
+    print("\n🚀 Ready! Now run: python3 generate-all-maps.py")
