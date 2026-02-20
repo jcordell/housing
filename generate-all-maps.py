@@ -5,6 +5,8 @@ from folium.features import DivIcon
 import json
 import webbrowser
 import os
+import markdown
+from jinja2 import Template
 
 DB_FILE = "sb79_housing.duckdb"
 
@@ -22,147 +24,43 @@ def analyze_and_map():
         con.execute("""
             CREATE OR REPLACE TEMPORARY TABLE parcel_base AS
             WITH
-            target_zones AS (
-                SELECT ST_Transform(geom, 'EPSG:4326', 'EPSG:3435', true) as geom_3435, zone_class
-                FROM zoning WHERE zone_class SIMILAR TO '(RS|RT|RM|B|C).*'
-            ),
-            projected_transit AS (
-                SELECT ST_Transform(geom, 'EPSG:4326', 'EPSG:3435', true) as geom_3435 FROM transit_stops
-            ),
-            projected_bus_all AS (
-                SELECT CAST(route AS VARCHAR) as route, ST_Transform(geom, 'EPSG:4326', 'EPSG:3435', true) as geom_3435
-                FROM bus_routes
-            ),
-            projected_bus_hf AS (
-                SELECT geom_3435 FROM projected_bus_all
-                WHERE route IN ('4', '9', '12', '14', 'J14', '20', '34', '47', '49', '53', '54', '55', '60', '63', '66', '72', '77', '79', '81', '82', '95')
-            ),
-            projected_bus_brt AS (
-                SELECT geom_3435 FROM projected_bus_all WHERE route = 'J14'
-            ),
-            processed_parcels AS (
-                SELECT pin10, SUBSTR(pin10, 1, 7) as block_id, ST_Transform(geom, 'EPSG:4326', 'EPSG:3435', true) as geom_3435
-                FROM parcels WHERE geom IS NOT NULL
-            ),
-            parcel_zone_join AS (
-                SELECT p.pin10, p.block_id, p.geom_3435, ST_Area(p.geom_3435) as area_sqft, z.zone_class
-                FROM processed_parcels p
-                JOIN target_zones z ON ST_Intersects(p.geom_3435, z.geom_3435)
-            ),
-            eligible_parcels AS (
-                SELECT pin10, ANY_VALUE(block_id) as block_id, ANY_VALUE(geom_3435) as geom_3435, ANY_VALUE(area_sqft) as area_sqft, ANY_VALUE(zone_class) as zone_class
-                FROM parcel_zone_join GROUP BY pin10
-            ),
+            target_zones AS (SELECT ST_Transform(geom, 'EPSG:4326', 'EPSG:3435', true) as geom_3435, zone_class FROM zoning WHERE zone_class SIMILAR TO '(RS|RT|RM|B|C).*'),
+            projected_transit AS (SELECT ST_Transform(geom, 'EPSG:4326', 'EPSG:3435', true) as geom_3435 FROM transit_stops),
+            projected_bus_all AS (SELECT CAST(route AS VARCHAR) as route, ST_Transform(geom, 'EPSG:4326', 'EPSG:3435', true) as geom_3435 FROM bus_routes),
+            projected_bus_hf AS (SELECT geom_3435 FROM projected_bus_all WHERE route IN ('4', '9', '12', '14', 'J14', '20', '34', '47', '49', '53', '54', '55', '60', '63', '66', '72', '77', '79', '81', '82', '95')),
+            projected_bus_brt AS (SELECT geom_3435 FROM projected_bus_all WHERE route = 'J14'),
+            processed_parcels AS (SELECT pin10, SUBSTR(pin10, 1, 7) as block_id, ST_Transform(geom, 'EPSG:4326', 'EPSG:3435', true) as geom_3435 FROM parcels WHERE geom IS NOT NULL),
+            parcel_zone_join AS (SELECT p.pin10, p.block_id, p.geom_3435, ST_Area(p.geom_3435) as area_sqft, z.zone_class FROM processed_parcels p JOIN target_zones z ON ST_Intersects(p.geom_3435, z.geom_3435)),
+            eligible_parcels AS (SELECT pin10, ANY_VALUE(block_id) as block_id, ANY_VALUE(geom_3435) as geom_3435, ANY_VALUE(area_sqft) as area_sqft, ANY_VALUE(zone_class) as zone_class FROM parcel_zone_join GROUP BY pin10),
             assembled_lots AS (
-                SELECT
-                    block_id, zone_class,
-                    ST_Union_Agg(geom_3435) as assembled_geom,
-                    ST_Transform(ST_Centroid(ST_Union_Agg(geom_3435)), 'EPSG:3435', 'EPSG:4326', true) as center_geom,
-                    SUM(area_sqft) as assembled_area_sqft,
-                    COUNT(pin10) as parcels_combined
-                FROM eligible_parcels
-                GROUP BY block_id, zone_class
+                SELECT block_id, zone_class, ST_Union_Agg(geom_3435) as assembled_geom, ST_Transform(ST_Centroid(ST_Union_Agg(geom_3435)), 'EPSG:3435', 'EPSG:4326', true) as center_geom, SUM(area_sqft) as assembled_area_sqft, COUNT(pin10) as parcels_combined
+                FROM eligible_parcels GROUP BY block_id, zone_class
             ),
             parcel_bus_counts AS (
-                SELECT
-                    a.block_id, a.zone_class,
-                    COUNT(DISTINCT b_all.route) as all_bus_count,
-                    COUNT(DISTINCT CASE WHEN b_all.route IN ('4', '9', '12', '14', 'J14', '20', '34', '47', '49', '53', '54', '55', '60', '63', '66', '72', '77', '79', '81', '82', '95') THEN b_all.route END) as hf_bus_count
-                FROM assembled_lots a
-                JOIN projected_bus_all b_all ON ST_Distance(a.assembled_geom, b_all.geom_3435) <= 1320
-                GROUP BY a.block_id, a.zone_class
+                SELECT a.block_id, a.zone_class, COUNT(DISTINCT b_all.route) as all_bus_count, COUNT(DISTINCT CASE WHEN b_all.route IN ('4', '9', '12', '14', 'J14', '20', '34', '47', '49', '53', '54', '55', '60', '63', '66', '72', '77', '79', '81', '82', '95') THEN b_all.route END) as hf_bus_count
+                FROM assembled_lots a JOIN projected_bus_all b_all ON ST_Distance(a.assembled_geom, b_all.geom_3435) <= 1320 GROUP BY a.block_id, a.zone_class
             ),
             parcel_distances AS (
-                SELECT
-                    a.block_id, a.center_geom, a.assembled_area_sqft as area_sqft,
-                    a.parcels_combined, a.zone_class,
-                    COALESCE(pbc.all_bus_count, 0) as all_bus_count,
-                    COALESCE(pbc.hf_bus_count, 0) as hf_bus_count,
-                    MIN(ST_Distance(a.assembled_geom, t.geom_3435)) as min_dist_train,
-                    MIN(ST_Distance(a.assembled_geom, b_brt.geom_3435)) as min_dist_brt,
-                    MIN(ST_Distance(a.assembled_geom, b_hf.geom_3435)) as min_dist_hf_bus
-                FROM assembled_lots a
-                LEFT JOIN projected_transit t ON ST_Distance(a.assembled_geom, t.geom_3435) <= 2640
-                LEFT JOIN projected_bus_brt b_brt ON ST_Distance(a.assembled_geom, b_brt.geom_3435) <= 2640
-                LEFT JOIN projected_bus_hf b_hf ON ST_Distance(a.assembled_geom, b_hf.geom_3435) <= 1320
-                LEFT JOIN parcel_bus_counts pbc ON a.block_id = pbc.block_id AND a.zone_class = pbc.zone_class
+                SELECT a.block_id, a.center_geom, a.assembled_area_sqft as area_sqft, a.parcels_combined, a.zone_class, COALESCE(pbc.all_bus_count, 0) as all_bus_count, COALESCE(pbc.hf_bus_count, 0) as hf_bus_count, MIN(ST_Distance(a.assembled_geom, t.geom_3435)) as min_dist_train, MIN(ST_Distance(a.assembled_geom, b_brt.geom_3435)) as min_dist_brt, MIN(ST_Distance(a.assembled_geom, b_hf.geom_3435)) as min_dist_hf_bus
+                FROM assembled_lots a LEFT JOIN projected_transit t ON ST_Distance(a.assembled_geom, t.geom_3435) <= 2640 LEFT JOIN projected_bus_brt b_brt ON ST_Distance(a.assembled_geom, b_brt.geom_3435) <= 2640 LEFT JOIN projected_bus_hf b_hf ON ST_Distance(a.assembled_geom, b_hf.geom_3435) <= 1320 LEFT JOIN parcel_bus_counts pbc ON a.block_id = pbc.block_id AND a.zone_class = pbc.zone_class
                 GROUP BY a.block_id, a.center_geom, a.assembled_area_sqft, a.parcels_combined, a.zone_class, pbc.all_bus_count, pbc.hf_bus_count
             ),
             parcel_calculations AS (
-                SELECT
-                    center_geom, area_sqft, zone_class, parcels_combined,
-
-                    GREATEST(parcels_combined, CASE
-                        WHEN zone_class LIKE 'RS-1%' OR zone_class LIKE 'RS-2%' THEN FLOOR(area_sqft / 5000)
-                        WHEN zone_class LIKE 'RS-3%' THEN FLOOR(area_sqft / 2500)
-                        WHEN zone_class LIKE 'RT-3.5%' THEN FLOOR(area_sqft / 1250)
-                        WHEN zone_class LIKE 'RT-4%' THEN FLOOR(area_sqft / 1000)
-                        WHEN zone_class LIKE 'RM-4.5%' OR zone_class LIKE 'RM-5%' THEN FLOOR(area_sqft / 400)
-                        WHEN zone_class LIKE 'RM-6%' OR zone_class LIKE 'RM-6.5%' THEN FLOOR(area_sqft / 200)
-                        WHEN zone_class LIKE '%-1' THEN FLOOR(area_sqft / 1000)
-                        WHEN zone_class LIKE '%-2' OR zone_class LIKE '%-3' THEN FLOOR(area_sqft / 400)
-                        WHEN zone_class LIKE '%-5' OR zone_class LIKE '%-6' THEN FLOOR(area_sqft / 200)
-                        ELSE FLOOR(area_sqft / 1000)
-                    END) as current_capacity,
-
-                    CASE
-                        WHEN zone_class IN ('RS-1', 'RS-2', 'RS-3') THEN
-                            CASE
-                                WHEN (area_sqft / parcels_combined) < 2500 THEN 1 * parcels_combined
-                                WHEN (area_sqft / parcels_combined) < 5000 THEN 4 * parcels_combined
-                                WHEN (area_sqft / parcels_combined) < 7500 THEN 6 * parcels_combined
-                                ELSE 8 * parcels_combined
-                            END
-                        ELSE 0
-                    END as pritzker_capacity,
-
-                    CASE
-                        WHEN area_sqft < 5000 THEN 0
-                        WHEN min_dist_train <= 1320 THEN FLOOR((area_sqft / 43560.0) * 120)
-                        WHEN min_dist_train <= 2640 OR min_dist_brt <= 1320 OR hf_bus_count >= 2 THEN FLOOR((area_sqft / 43560.0) * 100)
-                        WHEN min_dist_brt <= 2640 THEN FLOOR((area_sqft / 43560.0) * 80)
-                        ELSE 0
-                    END as cap_true_sb79,
-
-                    CASE
-                        WHEN area_sqft < 5000 THEN 0
-                        WHEN min_dist_train <= 1320 THEN FLOOR((area_sqft / 43560.0) * 120)
-                        WHEN min_dist_train <= 2640 THEN FLOOR((area_sqft / 43560.0) * 100)
-                        ELSE 0
-                    END as cap_train_only,
-
-                    CASE
-                        WHEN area_sqft < 5000 THEN 0
-                        WHEN min_dist_train <= 2640 AND min_dist_hf_bus <= 1320 THEN
-                            CASE WHEN min_dist_train <= 1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END
-                        ELSE 0
-                    END as cap_train_and_hf_bus,
-
-                    CASE
-                        WHEN area_sqft < 5000 THEN 0
-                        WHEN min_dist_train <= 2640 AND (min_dist_hf_bus <= 1320 OR all_bus_count >= 2) THEN
-                            CASE WHEN min_dist_train <= 1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END
-                        ELSE 0
-                    END as cap_train_and_bus_combo
-
+                SELECT center_geom, area_sqft, zone_class, parcels_combined,
+                    GREATEST(parcels_combined, CASE WHEN zone_class LIKE 'RS-1%' OR zone_class LIKE 'RS-2%' THEN FLOOR(area_sqft / 5000) WHEN zone_class LIKE 'RS-3%' THEN FLOOR(area_sqft / 2500) WHEN zone_class LIKE 'RT-3.5%' THEN FLOOR(area_sqft / 1250) WHEN zone_class LIKE 'RT-4%' THEN FLOOR(area_sqft / 1000) WHEN zone_class LIKE 'RM-4.5%' OR zone_class LIKE 'RM-5%' THEN FLOOR(area_sqft / 400) WHEN zone_class LIKE 'RM-6%' OR zone_class LIKE 'RM-6.5%' THEN FLOOR(area_sqft / 200) WHEN zone_class LIKE '%-1' THEN FLOOR(area_sqft / 1000) WHEN zone_class LIKE '%-2' OR zone_class LIKE '%-3' THEN FLOOR(area_sqft / 400) WHEN zone_class LIKE '%-5' OR zone_class LIKE '%-6' THEN FLOOR(area_sqft / 200) ELSE FLOOR(area_sqft / 1000) END) as current_capacity,
+                    CASE WHEN zone_class IN ('RS-1', 'RS-2', 'RS-3') THEN CASE WHEN (area_sqft / parcels_combined) < 2500 THEN 1 * parcels_combined WHEN (area_sqft / parcels_combined) < 5000 THEN 4 * parcels_combined WHEN (area_sqft / parcels_combined) < 7500 THEN 6 * parcels_combined ELSE 8 * parcels_combined END ELSE 0 END as pritzker_capacity,
+                    CASE WHEN area_sqft < 5000 THEN 0 WHEN min_dist_train <= 1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN min_dist_train <= 2640 OR min_dist_brt <= 1320 OR hf_bus_count >= 2 THEN FLOOR((area_sqft / 43560.0) * 100) WHEN min_dist_brt <= 2640 THEN FLOOR((area_sqft / 43560.0) * 80) ELSE 0 END as cap_true_sb79,
+                    CASE WHEN area_sqft < 5000 THEN 0 WHEN min_dist_train <= 1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN min_dist_train <= 2640 THEN FLOOR((area_sqft / 43560.0) * 100) ELSE 0 END as cap_train_only,
+                    CASE WHEN area_sqft < 5000 THEN 0 WHEN min_dist_train <= 2640 AND min_dist_hf_bus <= 1320 THEN CASE WHEN min_dist_train <= 1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END as cap_train_and_hf_bus,
+                    CASE WHEN area_sqft < 5000 THEN 0 WHEN min_dist_train <= 2640 AND (min_dist_hf_bus <= 1320 OR all_bus_count >= 2) THEN CASE WHEN min_dist_train <= 1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END as cap_train_and_bus_combo
                 FROM parcel_distances
             )
-            SELECT
-                center_geom,
+            SELECT center_geom, area_sqft, parcels_combined, zone_class,
                 GREATEST(0, pritzker_capacity - current_capacity) as new_pritzker,
-
-                GREATEST(0, cap_true_sb79 - GREATEST(current_capacity, pritzker_capacity)) as add_true_sb79,
-                GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_true_sb79) - current_capacity) as tot_true_sb79,
-
-                GREATEST(0, cap_train_only - GREATEST(current_capacity, pritzker_capacity)) as add_train_only,
-                GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_only) - current_capacity) as tot_train_only,
-
-                GREATEST(0, cap_train_and_hf_bus - GREATEST(current_capacity, pritzker_capacity)) as add_train_and_hf_bus,
-                GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_hf_bus) - current_capacity) as tot_train_and_hf_bus,
-
-                GREATEST(0, cap_train_and_bus_combo - GREATEST(current_capacity, pritzker_capacity)) as add_train_and_bus_combo,
-                GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_bus_combo) - current_capacity) as tot_train_and_bus_combo
-
+                GREATEST(0, cap_true_sb79 - GREATEST(current_capacity, pritzker_capacity)) as add_true_sb79, GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_true_sb79) - current_capacity) as tot_true_sb79,
+                GREATEST(0, cap_train_only - GREATEST(current_capacity, pritzker_capacity)) as add_train_only, GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_only) - current_capacity) as tot_train_only,
+                GREATEST(0, cap_train_and_hf_bus - GREATEST(current_capacity, pritzker_capacity)) as add_train_and_hf_bus, GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_hf_bus) - current_capacity) as tot_train_and_hf_bus,
+                GREATEST(0, cap_train_and_bus_combo - GREATEST(current_capacity, pritzker_capacity)) as add_train_and_bus_combo, GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_bus_combo) - current_capacity) as tot_train_and_bus_combo
             FROM parcel_calculations;
         """)
 
@@ -171,29 +69,27 @@ def analyze_and_map():
             CREATE OR REPLACE TABLE neighborhood_results AS
             SELECT
                 n.community as neighborhood_name,
-                SUM(pb.new_pritzker) as new_pritzker,
-                SUM(pb.add_true_sb79) as add_true_sb79,
-                SUM(pb.tot_true_sb79) as tot_true_sb79,
-                SUM(pb.add_train_only) as add_train_only,
-                SUM(pb.tot_train_only) as tot_train_only,
-                SUM(pb.add_train_and_hf_bus) as add_train_and_hf_bus,
-                SUM(pb.tot_train_and_hf_bus) as tot_train_and_hf_bus,
-                SUM(pb.add_train_and_bus_combo) as add_train_and_bus_combo,
-                SUM(pb.tot_train_and_bus_combo) as tot_train_and_bus_combo,
-                ST_Y(ST_Centroid(n.geom)) as label_lat,
-                ST_X(ST_Centroid(n.geom)) as label_lon
-            FROM parcel_base pb
-            JOIN ST_Read('neighborhoods.geojson') n ON ST_Intersects(pb.center_geom, n.geom)
-            GROUP BY n.community, n.geom
-            HAVING SUM(pb.tot_true_sb79) > 0 OR SUM(pb.tot_train_and_bus_combo) > 0
+                SUM(pb.new_pritzker) as new_pritzker, SUM(pb.add_true_sb79) as add_true_sb79, SUM(pb.tot_true_sb79) as tot_true_sb79,
+                SUM(pb.add_train_only) as add_train_only, SUM(pb.tot_train_only) as tot_train_only,
+                SUM(pb.add_train_and_hf_bus) as add_train_and_hf_bus, SUM(pb.tot_train_and_hf_bus) as tot_train_and_hf_bus,
+                SUM(pb.add_train_and_bus_combo) as add_train_and_bus_combo, SUM(pb.tot_train_and_bus_combo) as tot_train_and_bus_combo,
+
+                SUM(pb.parcels_combined) as total_parcels,
+                SUM(pb.area_sqft) as total_area_sqft,
+                SUM(CASE WHEN pb.zone_class NOT LIKE 'RS-1%' AND pb.zone_class NOT LIKE 'RS-2%' AND pb.zone_class NOT LIKE 'RS-3%' THEN pb.parcels_combined ELSE 0 END) as parcels_mf_zoned,
+                SUM(CASE WHEN pb.zone_class NOT LIKE 'RS-1%' AND pb.zone_class NOT LIKE 'RS-2%' AND pb.zone_class NOT LIKE 'RS-3%' THEN pb.area_sqft ELSE 0 END) as area_mf_zoned,
+
+                ST_Y(ST_Centroid(n.geom)) as label_lat, ST_X(ST_Centroid(n.geom)) as label_lon
+            FROM parcel_base pb JOIN ST_Read('neighborhoods.geojson') n ON ST_Intersects(pb.center_geom, n.geom)
+            GROUP BY n.community, n.geom HAVING SUM(pb.tot_true_sb79) > 0 OR SUM(pb.tot_train_and_bus_combo) > 0
         """)
         df_neighborhoods = con.execute("SELECT * FROM neighborhood_results ORDER BY tot_train_and_bus_combo DESC").df()
     else:
-        print("RECALCULATE is false. Skipping heavy math and loading cached dataset...")
+        print("RECALCULATE is false. Loading cached dataset...")
         try:
             df_neighborhoods = con.execute("SELECT * FROM neighborhood_results ORDER BY tot_train_and_bus_combo DESC").df()
         except Exception:
-            print("❌ ERROR: Cached table not found. Please run: RECALCULATE=true python3 generate-all-maps.py")
+            print("❌ ERROR: Cached table not found or schema outdated. Please run: RECALCULATE=true python3 generate-all-maps.py")
             con.close()
             return
 
@@ -211,49 +107,37 @@ def analyze_and_map():
         if os.path.exists('zillow_rent.csv'):
             df_rent = pd.read_csv('zillow_rent.csv')
             df_chi_rent = df_rent[df_rent['City'] == 'Chicago'].copy()
+            df_chi_rent['neighborhood_name'] = df_chi_rent['RegionName'].str.upper().str.replace('LAKEVIEW', 'LAKE VIEW')
 
-            # Normalize Zillow Neighborhood Names to match Chicago Official Community Areas
-            df_chi_rent['neighborhood_name'] = df_chi_rent['RegionName'].str.upper()
-            df_chi_rent['neighborhood_name'] = df_chi_rent['neighborhood_name'].str.replace('LAKEVIEW', 'LAKE VIEW')
-
-            # Find date columns
             date_cols = [c for c in df_chi_rent.columns if c.startswith('20')]
             if len(date_cols) >= 61:
                 latest_col = date_cols[-1]
-                five_yr_col = date_cols[-61] # 60 months ago
-
-                # Calculate 5-Year % Change
+                five_yr_col = date_cols[-61]
                 df_chi_rent['rent_increase_pct'] = ((df_chi_rent[latest_col] - df_chi_rent[five_yr_col]) / df_chi_rent[five_yr_col]) * 100
 
-                # Filter to only keep valid Chicago Community Areas
                 valid_nbhds = df_neighborhoods['neighborhood_name'].unique()
                 df_chi_rent = df_chi_rent[df_chi_rent['neighborhood_name'].isin(valid_nbhds)]
-
-                # Grab the Top 15 Neighborhoods with the highest rent spikes
-                top_rent_growth = df_chi_rent.nlargest(15, 'rent_increase_pct')
-                high_cost_nbhds = top_rent_growth['neighborhood_name'].tolist()
-
-                print("\n" + "="*80)
-                print("DYNAMIC ZILLOW RENT ANALYSIS (Last 5 Years)")
-                print(f"Tracking rent spikes from {five_yr_col} to {latest_col}")
-                print("="*80)
-                for _, r in top_rent_growth.head(8).iterrows():
-                    print(f" - {r['neighborhood_name'].title().ljust(20)} +{r['rent_increase_pct']:.1f}% increase")
+                high_cost_nbhds = df_chi_rent.nlargest(15, 'rent_increase_pct')['neighborhood_name'].tolist()
     except Exception as e:
         print("Could not process Zillow rent data:", e)
 
-    # Fallback to general high-demand areas if Zillow fails
     if not high_cost_nbhds:
         high_cost_nbhds = ['LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'NEAR WEST SIDE', 'NORTH CENTER', 'WEST TOWN', 'LOGAN SQUARE', 'EDGEWATER', 'LINCOLN SQUARE']
 
-    # Slice the dataframe to isolate just these high-rent-growth zones
-    df_expensive = df_neighborhoods[df_neighborhoods['neighborhood_name'].isin(high_cost_nbhds)]
-    exp_pritzker = df_expensive['new_pritzker'].sum()
-    exp_sb79_full = df_expensive['tot_true_sb79'].sum()
-    exp_sb79_diff = df_expensive['add_true_sb79'].sum()
+    # Slice dataframes
+    df_top15 = df_neighborhoods[df_neighborhoods['neighborhood_name'].isin(high_cost_nbhds[:15])]
+    df_top5 = df_neighborhoods[df_neighborhoods['neighborhood_name'].isin(high_cost_nbhds[:5])]
+    df_rest = df_neighborhoods[~df_neighborhoods['neighborhood_name'].isin(high_cost_nbhds[:15])]
 
-    pct_pritzker = (exp_pritzker / df_neighborhoods['new_pritzker'].sum()) * 100
-    pct_sb79 = (exp_sb79_full / df_neighborhoods['tot_true_sb79'].sum()) * 100
+    exp_pritzker = df_top15['new_pritzker'].sum()
+    exp_sb79_full = df_top15['tot_true_sb79'].sum()
+    exp_sb79_diff = df_top15['add_true_sb79'].sum()
+
+    pct_pritzker = (exp_pritzker / df_neighborhoods['new_pritzker'].sum()) * 100 if df_neighborhoods['new_pritzker'].sum() > 0 else 0
+    pct_sb79 = (exp_sb79_full / df_neighborhoods['tot_true_sb79'].sum()) * 100 if df_neighborhoods['tot_true_sb79'].sum() > 0 else 0
+
+    top5_pct_sqft = (df_top5['area_mf_zoned'].sum() / df_top5['total_area_sqft'].sum()) * 100 if df_top5['total_area_sqft'].sum() > 0 else 0
+    rest_pct_sqft = (df_rest['area_mf_zoned'].sum() / df_rest['total_area_sqft'].sum()) * 100 if df_rest['total_area_sqft'].sum() > 0 else 0
 
     # ---------------------------------------------------------
     # TERMINAL OUTPUT
@@ -271,17 +155,33 @@ def analyze_and_map():
     print(f"   ↳ Additional over Pritzker:                   {df_neighborhoods['add_train_and_hf_bus'].sum():,.0f}")
     print(f"5. SB 79 TRAIN + (HIGH FREQ BUS OR 2+ BUS LINES): {df_neighborhoods['tot_train_and_bus_combo'].sum():,.0f}")
     print(f"   ↳ Additional over Pritzker:                   {df_neighborhoods['add_train_and_bus_combo'].sum():,.0f}")
-    print("="*80)
-    print("EQUITY IMPACT: TOP 15 GENTRIFYING/HIGH-RENT-GROWTH NEIGHBORHOODS")
-    print("-" * 80)
-    print(f"Pritzker Units in these areas:                   {exp_pritzker:,.0f} ({pct_pritzker:.1f}% of total citywide)")
-    print(f"SB 79 Units in these areas:                      {exp_sb79_full:,.0f} ({pct_sb79:.1f}% of total citywide)")
-    print(f"↳ Extra units unlocked in exclusionary areas:    +{exp_sb79_diff:,.0f}")
     print("="*80 + "\n")
+
+    # ---------------------------------------------------------
+    # JINJA TEMPLATE DATA PREP
+    # ---------------------------------------------------------
+    template_data = {
+        'pritzker_total': f"{df_neighborhoods['new_pritzker'].sum():,.0f}",
+        'pct_pritzker': f"{pct_pritzker:.1f}",
+        'true_sb79_total': f"{df_neighborhoods['tot_true_sb79'].sum():,.0f}",
+        'true_sb79_diff': f"+{df_neighborhoods['add_true_sb79'].sum():,.0f}",
+        'pct_sb79': f"{pct_sb79:.1f}",
+        'train_only_total': f"{df_neighborhoods['tot_train_only'].sum():,.0f}",
+        'train_only_diff': f"+{df_neighborhoods['add_train_only'].sum():,.0f}",
+        'train_hf_total': f"{df_neighborhoods['tot_train_and_hf_bus'].sum():,.0f}",
+        'train_hf_diff': f"+{df_neighborhoods['add_train_and_hf_bus'].sum():,.0f}",
+        'train_combo_total': f"{df_neighborhoods['tot_train_and_bus_combo'].sum():,.0f}",
+        'train_combo_diff': f"+{df_neighborhoods['add_train_and_bus_combo'].sum():,.0f}",
+        'exp_sb79_diff': f"{exp_sb79_diff:,.0f}",
+        'affordable_units': f"{exp_sb79_diff * 0.20:,.0f}",
+        'top5_pct_sqft': f"{top5_pct_sqft:.1f}",
+        'rest_pct_sqft': f"{rest_pct_sqft:.1f}"
+    }
 
     # ---------------------------------------------------------
     # MAPPING
     # ---------------------------------------------------------
+    print("Generating Interactive Map...")
     with open('neighborhoods.geojson', 'r') as f:
         geo_data = json.load(f)
 
@@ -291,7 +191,6 @@ def analyze_and_map():
     for feature in geo_data['features']:
         name = feature['properties']['community'].upper()
         stats = unit_lookup.get(name, {})
-
         feature['properties']['m1_val'] = f"{stats.get('new_pritzker', 0):,.0f}"
         feature['properties']['m2_val'] = f"{stats.get('tot_true_sb79', 0):,.0f}"
         feature['properties']['m2_diff'] = f"+{stats.get('add_true_sb79', 0):,.0f}"
@@ -302,89 +201,157 @@ def analyze_and_map():
         feature['properties']['m5_val'] = f"{stats.get('tot_train_and_bus_combo', 0):,.0f}"
         feature['properties']['m5_diff'] = f"+{stats.get('add_train_and_bus_combo', 0):,.0f}"
 
-    def add_labels(folium_map, df, col_name):
-        for i, row in df.iterrows():
-            units = row[col_name]
+    m = folium.Map(location=[41.84, -87.68], zoom_start=11, tiles=None)
+    folium.TileLayer('CartoDB dark_matter', name='Base Map', control=False).add_to(m)
+
+    def add_layer(title, data_col, tooltip_fields, tooltip_aliases, show_by_default=False):
+        choro = folium.Choropleth(
+            geo_data=geo_data, data=df_neighborhoods,
+            columns=['neighborhood_name', data_col], key_on='feature.properties.community',
+            fill_color='Greens', fill_opacity=0.7, line_opacity=0.2, line_color='white',
+            name=title, show=show_by_default
+        )
+        for key in list(choro._children.keys()):
+            if key.startswith('color_map'): del choro._children[key]
+
+        for i, row in df_neighborhoods.iterrows():
+            units = row[data_col]
             if units >= 1000: label_text = f"{int(round(units/1000))}k"
             elif units > 0: label_text = "<1k"
             else: continue
             label_html = f'''<div style="font-family: sans-serif; font-size: 8pt; color: white; text-shadow: 1px 1px 2px black; text-align: center; white-space: nowrap; transform: translate(-50%, -50%); pointer-events: none;">{label_text}</div>'''
-            folium.map.Marker([row['label_lat'], row['label_lon']], icon=DivIcon(icon_size=(50,20), icon_anchor=(0,0), html=label_html)).add_to(folium_map)
+            folium.map.Marker([row['label_lat'], row['label_lon']], icon=DivIcon(icon_size=(50,20), icon_anchor=(0,0), html=label_html)).add_to(choro)
 
-    def create_map(title, data_col, tooltip_fields, tooltip_aliases, output_file, tot_val, add_val):
-        print(f"Generating: {title}...")
-        m = folium.Map(location=[41.84, -87.68], zoom_start=11, tiles="CartoDB dark_matter")
-
-        # Create choropleth but DO NOT add it to the map yet
-        choro = folium.Choropleth(
-            geo_data=geo_data, name=title, data=df_neighborhoods,
-            columns=['neighborhood_name', data_col], key_on='feature.properties.community',
-            fill_color='Greens', fill_opacity=0.7, line_opacity=0.2, line_color='white'
-        )
-
-        # Iterate through the choropleth's children and permanently delete the color legend
-        for key in list(choro._children.keys()):
-            if key.startswith('color_map'):
-                del(choro._children[key])
-
-        # Now add the clean choropleth to the map
+        folium.GeoJsonTooltip(fields=tooltip_fields, aliases=tooltip_aliases, style="background-color: black; color: white;").add_to(choro.geojson)
         choro.add_to(m)
-        add_labels(m, df_neighborhoods, data_col)
 
-        folium.GeoJson(
-            geo_data, style_function=lambda x: {'fillColor': '#ffffff', 'color':'transparent', 'fillOpacity': 0.0},
-            highlight_function=lambda x: {'fillColor': '#ffffff', 'color':'white', 'fillOpacity': 0.2, 'weight': 2},
-            tooltip=folium.GeoJsonTooltip(fields=tooltip_fields, aliases=tooltip_aliases, style="background-color: black; color: white;")
-        ).add_to(m)
+    add_layer("1. Pritzker Upzoning", 'new_pritzker', ['community', 'm1_val'], ['Neighborhood:', 'Pritzker Units:'], False)
+    add_layer("2. TRUE CA SB 79 (Train+BRT)", 'tot_true_sb79', ['community', 'm2_val', 'm2_diff'], ['Neighborhood:', 'Total SB 79 Units:', 'Difference vs Pritzker:'], True)
+    add_layer("3. SB 79 Train Only", 'tot_train_only', ['community', 'm3_val', 'm3_diff'], ['Neighborhood:', 'Total Units:', 'Difference vs Pritzker:'], False)
+    add_layer("4. SB 79 Train + HF Bus", 'tot_train_and_hf_bus', ['community', 'm4_val', 'm4_diff'], ['Neighborhood:', 'Total Units:', 'Difference vs Pritzker:'], False)
+    add_layer("5. SB 79 Train + Bus Options", 'tot_train_and_bus_combo', ['community', 'm5_val', 'm5_diff'], ['Neighborhood:', 'Total Units:', 'Difference vs Pritzker:'], False)
 
-        # Inject Custom HTML Legend into the top right
-        legend_html = f'''
-        <div style="
-            position: fixed; top: 20px; right: 20px; width: 290px;
-            background-color: rgba(30, 30, 30, 0.9); color: #ffffff; z-index: 9999;
-            border: 1px solid #777; padding: 15px; border-radius: 8px; font-family: sans-serif;
-            pointer-events: auto; box-shadow: 2px 2px 8px rgba(0,0,0,0.5);
-        ">
-            <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 16px; border-bottom: 1px solid #555; padding-bottom: 5px;">
-                {title}
-            </h4>
-            <p style="margin: 0; font-size: 14px; line-height: 1.6;">
-                <b>Total Net New Units:</b> {tot_val:,.0f}<br>
-                <span style="color: #4CAF50;"><b>Additional vs Pritzker:</b> {add_val}</span>
-            </p>
+    folium.LayerControl(collapsed=False).add_to(m)
+
+    js_and_legend_injection = f"""
+    <div id="custom-legend" style="
+        position: absolute; bottom: 30px; right: 20px; width: 320px;
+        background-color: rgba(30, 30, 30, 0.95); color: #ffffff; z-index: 9999;
+        border: 1px solid #777; padding: 15px; border-radius: 8px; font-family: sans-serif;
+        pointer-events: auto; box-shadow: 2px 2px 8px rgba(0,0,0,0.5);
+    ">
+        <h4 id="legend-title" style="margin-top: 0; margin-bottom: 10px; font-size: 16px; border-bottom: 1px solid #555; padding-bottom: 5px;">
+            2. TRUE CA SB 79 (Train+BRT)
+        </h4>
+        <p style="margin: 0; font-size: 14px; line-height: 1.6;">
+            <b>Total Net New Units:</b> <span id="legend-tot">{df_neighborhoods['tot_true_sb79'].sum():,.0f}</span><br>
+            <span style="color: #4CAF50;"><b>Additional vs Pritzker:</b> <span id="legend-add">+{df_neighborhoods['add_true_sb79'].sum():,.0f}</span></span>
+        </p>
+    </div>
+    <script>
+    var layerData = {{
+        "1. Pritzker Upzoning": {{ tot: "{df_neighborhoods['new_pritzker'].sum():,.0f}", add: "N/A (Baseline)" }},
+        "2. TRUE CA SB 79 (Train+BRT)": {{ tot: "{df_neighborhoods['tot_true_sb79'].sum():,.0f}", add: "+{df_neighborhoods['add_true_sb79'].sum():,.0f}" }},
+        "3. SB 79 Train Only": {{ tot: "{df_neighborhoods['tot_train_only'].sum():,.0f}", add: "+{df_neighborhoods['add_train_only'].sum():,.0f}" }},
+        "4. SB 79 Train + HF Bus": {{ tot: "{df_neighborhoods['tot_train_and_hf_bus'].sum():,.0f}", add: "+{df_neighborhoods['add_train_and_hf_bus'].sum():,.0f}" }},
+        "5. SB 79 Train + Bus Options": {{ tot: "{df_neighborhoods['tot_train_and_bus_combo'].sum():,.0f}", add: "+{df_neighborhoods['add_train_and_bus_combo'].sum():,.0f}" }}
+    }};
+
+    document.addEventListener("DOMContentLoaded", function() {{
+        setTimeout(function() {{
+            var checkboxes = document.querySelectorAll('.leaflet-control-layers-overlays input[type="checkbox"]');
+            var spans = document.querySelectorAll('.leaflet-control-layers-overlays span');
+
+            checkboxes.forEach(function(cb, index) {{
+                cb.addEventListener('change', function() {{
+                    if(this.checked) {{
+                        checkboxes.forEach(function(other) {{
+                            if(other !== cb && other.checked) {{
+                                other.click();
+                            }}
+                        }});
+
+                        var layerName = spans[index].innerText.trim();
+                        if (layerData[layerName]) {{
+                            document.getElementById("legend-title").innerText = layerName;
+                            document.getElementById("legend-tot").innerText = layerData[layerName].tot;
+                            document.getElementById("legend-add").innerText = layerData[layerName].add;
+                        }}
+                    }}
+                }});
+            }});
+        }}, 500);
+    }});
+    </script>
+    """
+    m.get_root().html.add_child(folium.Element(js_and_legend_injection))
+    m.get_root().render()
+    map_html = m.get_root()._repr_html_()
+
+    # ---------------------------------------------------------
+    # COMPILE HTML
+    # ---------------------------------------------------------
+    print("Compiling Markdown and HTML...")
+    if not os.path.exists('article.md'):
+        print("ERROR: article.md not found. Please save the markdown file.")
+        return
+
+    with open('article.md', 'r') as f:
+        md_text = f.read()
+
+    jinja_template = Template(md_text)
+    populated_md = jinja_template.render(**template_data)
+
+    # NEW: Added extensions=['tables'] so the Markdown parser properly converts the table
+    article_html = markdown.markdown(populated_md, extensions=['tables'])
+
+    final_html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Housing Policy Impact Analysis</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+            .prose h1 {{ font-size: 2.25rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937; line-height: 1.2; }}
+            .prose h2 {{ font-size: 1.5rem; font-weight: bold; margin-top: 2rem; margin-bottom: 0.75rem; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.5rem;}}
+            .prose p {{ margin-bottom: 1rem; color: #4b5563; line-height: 1.7; }}
+            .prose ul {{ list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1rem; color: #4b5563; line-height: 1.7; }}
+            .prose li {{ margin-bottom: 0.5rem; }}
+            .prose strong {{ color: #111827; }}
+            /* New styling for the Markdown Table */
+            .prose table {{ width: 100%; border-collapse: collapse; margin-top: 1rem; margin-bottom: 1rem; text-align: left; }}
+            .prose th {{ background-color: #f3f4f6; padding: 0.75rem; font-weight: 600; color: #374151; border: 1px solid #e5e7eb; }}
+            .prose td {{ padding: 0.75rem; border: 1px solid #e5e7eb; color: #4b5563; }}
+            .prose tr:nth-child(even) {{ background-color: #f9fafb; }}
+        </style>
+    </head>
+    <body class="bg-gray-50 font-sans antialiased">
+        <div class="max-w-7xl mx-auto px-4 py-8">
+            <div class="flex flex-col gap-8">
+                <div class="bg-white p-8 rounded-xl shadow-lg border border-gray-100">
+                    <div class="prose max-w-none">
+                        {article_html}
+                    </div>
+                </div>
+                <div class="w-full h-[800px] rounded-xl shadow-lg overflow-hidden border border-gray-100 relative">
+                    {map_html}
+                </div>
+            </div>
         </div>
-        '''
-        m.get_root().html.add_child(folium.Element(legend_html))
-        m.save(output_file)
+    </body>
+    </html>
+    """
+    output_file = "proposal.html"
+    with open(output_file, 'w') as f:
+        f.write(final_html)
 
-    # All maps forced to 'Greens' color mapping
-    create_map("Map 1: Pritzker Upzoning", 'new_pritzker',
-               ['community', 'm1_val'], ['Neighborhood:', 'Pritzker Units:'],
-               "map_1_pritzker.html", df_neighborhoods['new_pritzker'].sum(), "N/A (Baseline)")
-
-    create_map("Map 2: TRUE CA SB 79 (Train + BRT/Intersections)", 'tot_true_sb79',
-               ['community', 'm2_val', 'm2_diff'], ['Neighborhood:', 'Total SB 79 Units:', 'Additional vs Pritzker:'],
-               "map_2_sb79_true.html", df_neighborhoods['tot_true_sb79'].sum(), f"+{df_neighborhoods['add_true_sb79'].sum():,.0f}")
-
-    create_map("Map 3: SB 79 Train Only", 'tot_train_only',
-               ['community', 'm3_val', 'm3_diff'], ['Neighborhood:', 'Total Units:', 'Additional vs Pritzker:'],
-               "map_3_sb79_train.html", df_neighborhoods['tot_train_only'].sum(), f"+{df_neighborhoods['add_train_only'].sum():,.0f}")
-
-    create_map("Map 4: SB 79 Train + HF Bus", 'tot_train_and_hf_bus',
-               ['community', 'm4_val', 'm4_diff'], ['Neighborhood:', 'Total Units:', 'Additional vs Pritzker:'],
-               "map_4_sb79_train_hf.html", df_neighborhoods['tot_train_and_hf_bus'].sum(), f"+{df_neighborhoods['add_train_and_hf_bus'].sum():,.0f}")
-
-    create_map("Map 5: SB 79 Train + (HF Bus OR 2 Bus Lines)", 'tot_train_and_bus_combo',
-               ['community', 'm5_val', 'm5_diff'], ['Neighborhood:', 'Total Units:', 'Additional vs Pritzker:'],
-               "map_5_sb79_train_hf_any2.html", df_neighborhoods['tot_train_and_bus_combo'].sum(), f"+{df_neighborhoods['add_train_and_bus_combo'].sum():,.0f}")
-
-    print("✅ All 5 maps generated successfully!")
-
-    for map_file in ["map_1_pritzker.html", "map_2_sb79_true.html", "map_3_sb79_train.html", "map_4_sb79_train_hf.html", "map_5_sb79_train_hf_any2.html"]:
-        try:
-            webbrowser.open('file://' + os.path.realpath(map_file))
-        except:
-            pass
+    print(f"✅ Success! Page saved to {output_file}")
+    try:
+        webbrowser.open('file://' + os.path.realpath(output_file))
+    except:
+        pass
 
 if __name__ == "__main__":
     analyze_and_map()
