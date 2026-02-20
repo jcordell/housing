@@ -8,7 +8,9 @@ DATASETS = {
     'chicago_zoning.geojson': 'https://data.cityofchicago.org/api/geospatial/djph-xxwh?method=export&format=GeoJSON',
     'neighborhoods.geojson': 'https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON',
     'cta_stations.geojson': 'https://data.cityofchicago.org/api/geospatial/8pix-ypme?method=export&format=GeoJSON',
-    'cta_bus_routes.geojson': 'https://data.cityofchicago.org/api/geospatial/6uva-a5ei?method=export&format=GeoJSON'
+    'cta_bus_routes.geojson': 'https://data.cityofchicago.org/api/geospatial/6uva-a5ei?method=export&format=GeoJSON',
+    # NEW: Zillow Observed Rent Index (ZORI) by Neighborhood
+    'zillow_rent.csv': 'https://files.zillowstatic.com/research/public_csvs/zori/Neighborhood_zori_uc_sfrcondomfr_sm_month.csv'
 }
 
 def download_file(filename, url):
@@ -18,7 +20,7 @@ def download_file(filename, url):
 
     print(f"⬇️  Downloading {filename}...")
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (DataProject; python-requests)'}
         r = requests.get(url, headers=headers, stream=True, timeout=60)
         r.raise_for_status()
         with open(filename, 'wb') as f:
@@ -33,6 +35,7 @@ def setup_database():
     con = duckdb.connect(DB_FILE)
     con.execute("INSTALL spatial; LOAD spatial;")
 
+    # We skip zillow_rent.csv here because we will analyze it dynamically in Pandas
     table_map = {
         'chicago_zoning.geojson': 'zoning',
         'cook_parcels.geojson': 'parcels',

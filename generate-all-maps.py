@@ -13,9 +13,7 @@ def analyze_and_map():
         print("ERROR: 'neighborhoods.geojson' missing. Run 'download-sb79.py' first.")
         return
 
-    # Check environment variable (defaults to true if not set)
     recalculate = os.environ.get('RECALCULATE', 'true').lower() == 'true'
-
     con = duckdb.connect(DB_FILE)
     con.execute("INSTALL spatial; LOAD spatial;")
 
@@ -55,8 +53,6 @@ def analyze_and_map():
                 SELECT pin10, ANY_VALUE(block_id) as block_id, ANY_VALUE(geom_3435) as geom_3435, ANY_VALUE(area_sqft) as area_sqft, ANY_VALUE(zone_class) as zone_class
                 FROM parcel_zone_join GROUP BY pin10
             ),
-
-            -- ADVANCED LOT ASSEMBLY
             assembled_lots AS (
                 SELECT
                     block_id, zone_class,
@@ -67,8 +63,6 @@ def analyze_and_map():
                 FROM eligible_parcels
                 GROUP BY block_id, zone_class
             ),
-
-            -- BUS ROUTE COUNTER
             parcel_bus_counts AS (
                 SELECT
                     a.block_id, a.zone_class,
@@ -78,7 +72,6 @@ def analyze_and_map():
                 JOIN projected_bus_all b_all ON ST_Distance(a.assembled_geom, b_all.geom_3435) <= 1320
                 GROUP BY a.block_id, a.zone_class
             ),
-
             parcel_distances AS (
                 SELECT
                     a.block_id, a.center_geom, a.assembled_area_sqft as area_sqft,
@@ -95,12 +88,10 @@ def analyze_and_map():
                 LEFT JOIN parcel_bus_counts pbc ON a.block_id = pbc.block_id AND a.zone_class = pbc.zone_class
                 GROUP BY a.block_id, a.center_geom, a.assembled_area_sqft, a.parcels_combined, a.zone_class, pbc.all_bus_count, pbc.hf_bus_count
             ),
-
             parcel_calculations AS (
                 SELECT
                     center_geom, area_sqft, zone_class, parcels_combined,
 
-                    -- BASELINE
                     GREATEST(parcels_combined, CASE
                         WHEN zone_class LIKE 'RS-1%' OR zone_class LIKE 'RS-2%' THEN FLOOR(area_sqft / 5000)
                         WHEN zone_class LIKE 'RS-3%' THEN FLOOR(area_sqft / 2500)
@@ -114,7 +105,6 @@ def analyze_and_map():
                         ELSE FLOOR(area_sqft / 1000)
                     END) as current_capacity,
 
-                    -- SCENARIO 1: ORIGINAL UPZONING (Pritzker BUILD Act)
                     CASE
                         WHEN zone_class IN ('RS-1', 'RS-2', 'RS-3') THEN
                             CASE
@@ -126,7 +116,6 @@ def analyze_and_map():
                         ELSE 0
                     END as pritzker_capacity,
 
-                    -- SCENARIO 2: TRUE CALIFORNIA SB 79 (Train OR BRT OR Intersection of 2+ HF Buses)
                     CASE
                         WHEN area_sqft < 5000 THEN 0
                         WHEN min_dist_train <= 1320 THEN FLOOR((area_sqft / 43560.0) * 120)
@@ -135,7 +124,6 @@ def analyze_and_map():
                         ELSE 0
                     END as cap_true_sb79,
 
-                    -- SCENARIO 3: SB 79 TRAIN ONLY
                     CASE
                         WHEN area_sqft < 5000 THEN 0
                         WHEN min_dist_train <= 1320 THEN FLOOR((area_sqft / 43560.0) * 120)
@@ -143,7 +131,6 @@ def analyze_and_map():
                         ELSE 0
                     END as cap_train_only,
 
-                    -- SCENARIO 4: SB 79 TRAIN + HF BUS
                     CASE
                         WHEN area_sqft < 5000 THEN 0
                         WHEN min_dist_train <= 2640 AND min_dist_hf_bus <= 1320 THEN
@@ -151,7 +138,6 @@ def analyze_and_map():
                         ELSE 0
                     END as cap_train_and_hf_bus,
 
-                    -- SCENARIO 5: SB 79 TRAIN + (HF BUS OR 2+ BUS LINES)
                     CASE
                         WHEN area_sqft < 5000 THEN 0
                         WHEN min_dist_train <= 2640 AND (min_dist_hf_bus <= 1320 OR all_bus_count >= 2) THEN
@@ -181,25 +167,19 @@ def analyze_and_map():
         """)
 
         print("Extracting Neighborhood Aggregates and writing to permanent cache...")
-
         con.execute("""
             CREATE OR REPLACE TABLE neighborhood_results AS
             SELECT
                 n.community as neighborhood_name,
                 SUM(pb.new_pritzker) as new_pritzker,
-
                 SUM(pb.add_true_sb79) as add_true_sb79,
                 SUM(pb.tot_true_sb79) as tot_true_sb79,
-
                 SUM(pb.add_train_only) as add_train_only,
                 SUM(pb.tot_train_only) as tot_train_only,
-
                 SUM(pb.add_train_and_hf_bus) as add_train_and_hf_bus,
                 SUM(pb.tot_train_and_hf_bus) as tot_train_and_hf_bus,
-
                 SUM(pb.add_train_and_bus_combo) as add_train_and_bus_combo,
                 SUM(pb.tot_train_and_bus_combo) as tot_train_and_bus_combo,
-
                 ST_Y(ST_Centroid(n.geom)) as label_lat,
                 ST_X(ST_Centroid(n.geom)) as label_lon
             FROM parcel_base pb
@@ -207,15 +187,13 @@ def analyze_and_map():
             GROUP BY n.community, n.geom
             HAVING SUM(pb.tot_true_sb79) > 0 OR SUM(pb.tot_train_and_bus_combo) > 0
         """)
-
         df_neighborhoods = con.execute("SELECT * FROM neighborhood_results ORDER BY tot_train_and_bus_combo DESC").df()
-
     else:
         print("RECALCULATE is false. Skipping heavy math and loading cached dataset...")
         try:
             df_neighborhoods = con.execute("SELECT * FROM neighborhood_results ORDER BY tot_train_and_bus_combo DESC").df()
-        except Exception as e:
-            print("❌ ERROR: Cached table 'neighborhood_results' not found. Please run: RECALCULATE=true python3 generate-all-maps.py")
+        except Exception:
+            print("❌ ERROR: Cached table not found. Please run: RECALCULATE=true python3 generate-all-maps.py")
             con.close()
             return
 
@@ -224,6 +202,58 @@ def analyze_and_map():
     if df_neighborhoods.empty:
         print("No data found.")
         return
+
+    # ---------------------------------------------------------
+    # DYNAMIC RENT INCREASE ANALYSIS (ZILLOW ZORI)
+    # ---------------------------------------------------------
+    high_cost_nbhds = []
+    try:
+        if os.path.exists('zillow_rent.csv'):
+            df_rent = pd.read_csv('zillow_rent.csv')
+            df_chi_rent = df_rent[df_rent['City'] == 'Chicago'].copy()
+
+            # Normalize Zillow Neighborhood Names to match Chicago Official Community Areas
+            df_chi_rent['neighborhood_name'] = df_chi_rent['RegionName'].str.upper()
+            df_chi_rent['neighborhood_name'] = df_chi_rent['neighborhood_name'].str.replace('LAKEVIEW', 'LAKE VIEW')
+
+            # Find date columns
+            date_cols = [c for c in df_chi_rent.columns if c.startswith('20')]
+            if len(date_cols) >= 61:
+                latest_col = date_cols[-1]
+                five_yr_col = date_cols[-61] # 60 months ago
+
+                # Calculate 5-Year % Change
+                df_chi_rent['rent_increase_pct'] = ((df_chi_rent[latest_col] - df_chi_rent[five_yr_col]) / df_chi_rent[five_yr_col]) * 100
+
+                # Filter to only keep valid Chicago Community Areas
+                valid_nbhds = df_neighborhoods['neighborhood_name'].unique()
+                df_chi_rent = df_chi_rent[df_chi_rent['neighborhood_name'].isin(valid_nbhds)]
+
+                # Grab the Top 15 Neighborhoods with the highest rent spikes
+                top_rent_growth = df_chi_rent.nlargest(15, 'rent_increase_pct')
+                high_cost_nbhds = top_rent_growth['neighborhood_name'].tolist()
+
+                print("\n" + "="*80)
+                print("DYNAMIC ZILLOW RENT ANALYSIS (Last 5 Years)")
+                print(f"Tracking rent spikes from {five_yr_col} to {latest_col}")
+                print("="*80)
+                for _, r in top_rent_growth.head(8).iterrows():
+                    print(f" - {r['neighborhood_name'].title().ljust(20)} +{r['rent_increase_pct']:.1f}% increase")
+    except Exception as e:
+        print("Could not process Zillow rent data:", e)
+
+    # Fallback to general high-demand areas if Zillow fails
+    if not high_cost_nbhds:
+        high_cost_nbhds = ['LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'NEAR WEST SIDE', 'NORTH CENTER', 'WEST TOWN', 'LOGAN SQUARE', 'EDGEWATER', 'LINCOLN SQUARE']
+
+    # Slice the dataframe to isolate just these high-rent-growth zones
+    df_expensive = df_neighborhoods[df_neighborhoods['neighborhood_name'].isin(high_cost_nbhds)]
+    exp_pritzker = df_expensive['new_pritzker'].sum()
+    exp_sb79_full = df_expensive['tot_true_sb79'].sum()
+    exp_sb79_diff = df_expensive['add_true_sb79'].sum()
+
+    pct_pritzker = (exp_pritzker / df_neighborhoods['new_pritzker'].sum()) * 100
+    pct_sb79 = (exp_sb79_full / df_neighborhoods['tot_true_sb79'].sum()) * 100
 
     # ---------------------------------------------------------
     # TERMINAL OUTPUT
@@ -241,6 +271,12 @@ def analyze_and_map():
     print(f"   ↳ Additional over Pritzker:                   {df_neighborhoods['add_train_and_hf_bus'].sum():,.0f}")
     print(f"5. SB 79 TRAIN + (HIGH FREQ BUS OR 2+ BUS LINES): {df_neighborhoods['tot_train_and_bus_combo'].sum():,.0f}")
     print(f"   ↳ Additional over Pritzker:                   {df_neighborhoods['add_train_and_bus_combo'].sum():,.0f}")
+    print("="*80)
+    print("EQUITY IMPACT: TOP 15 GENTRIFYING/HIGH-RENT-GROWTH NEIGHBORHOODS")
+    print("-" * 80)
+    print(f"Pritzker Units in these areas:                   {exp_pritzker:,.0f} ({pct_pritzker:.1f}% of total citywide)")
+    print(f"SB 79 Units in these areas:                      {exp_sb79_full:,.0f} ({pct_sb79:.1f}% of total citywide)")
+    print(f"↳ Extra units unlocked in exclusionary areas:    +{exp_sb79_diff:,.0f}")
     print("="*80 + "\n")
 
     # ---------------------------------------------------------
@@ -256,22 +292,13 @@ def analyze_and_map():
         name = feature['properties']['community'].upper()
         stats = unit_lookup.get(name, {})
 
-        # Pritzker
         feature['properties']['m1_val'] = f"{stats.get('new_pritzker', 0):,.0f}"
-
-        # Map 2 additions
         feature['properties']['m2_val'] = f"{stats.get('tot_true_sb79', 0):,.0f}"
         feature['properties']['m2_diff'] = f"+{stats.get('add_true_sb79', 0):,.0f}"
-
-        # Map 3 additions
         feature['properties']['m3_val'] = f"{stats.get('tot_train_only', 0):,.0f}"
         feature['properties']['m3_diff'] = f"+{stats.get('add_train_only', 0):,.0f}"
-
-        # Map 4 additions
         feature['properties']['m4_val'] = f"{stats.get('tot_train_and_hf_bus', 0):,.0f}"
         feature['properties']['m4_diff'] = f"+{stats.get('add_train_and_hf_bus', 0):,.0f}"
-
-        # Map 5 additions
         feature['properties']['m5_val'] = f"{stats.get('tot_train_and_bus_combo', 0):,.0f}"
         feature['properties']['m5_diff'] = f"+{stats.get('add_train_and_bus_combo', 0):,.0f}"
 
@@ -295,14 +322,13 @@ def analyze_and_map():
             fill_color='Greens', fill_opacity=0.7, line_opacity=0.2, line_color='white'
         )
 
-        # HACK: Iterate through the choropleth's children and permanently delete the color legend
+        # Iterate through the choropleth's children and permanently delete the color legend
         for key in list(choro._children.keys()):
             if key.startswith('color_map'):
                 del(choro._children[key])
 
         # Now add the clean choropleth to the map
         choro.add_to(m)
-
         add_labels(m, df_neighborhoods, data_col)
 
         folium.GeoJson(
@@ -314,19 +340,10 @@ def analyze_and_map():
         # Inject Custom HTML Legend into the top right
         legend_html = f'''
         <div style="
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            width: 290px;
-            background-color: rgba(30, 30, 30, 0.9);
-            color: #ffffff;
-            z-index: 9999;
-            border: 1px solid #777;
-            padding: 15px;
-            border-radius: 8px;
-            font-family: sans-serif;
-            pointer-events: auto;
-            box-shadow: 2px 2px 8px rgba(0,0,0,0.5);
+            position: fixed; top: 20px; right: 20px; width: 290px;
+            background-color: rgba(30, 30, 30, 0.9); color: #ffffff; z-index: 9999;
+            border: 1px solid #777; padding: 15px; border-radius: 8px; font-family: sans-serif;
+            pointer-events: auto; box-shadow: 2px 2px 8px rgba(0,0,0,0.5);
         ">
             <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 16px; border-bottom: 1px solid #555; padding-bottom: 5px;">
                 {title}
@@ -338,30 +355,25 @@ def analyze_and_map():
         </div>
         '''
         m.get_root().html.add_child(folium.Element(legend_html))
-
         m.save(output_file)
 
-    # 1. Pritzker
+    # All maps forced to 'Greens' color mapping
     create_map("Map 1: Pritzker Upzoning", 'new_pritzker',
                ['community', 'm1_val'], ['Neighborhood:', 'Pritzker Units:'],
                "map_1_pritzker.html", df_neighborhoods['new_pritzker'].sum(), "N/A (Baseline)")
 
-    # 2. True CA SB 79
     create_map("Map 2: TRUE CA SB 79 (Train + BRT/Intersections)", 'tot_true_sb79',
                ['community', 'm2_val', 'm2_diff'], ['Neighborhood:', 'Total SB 79 Units:', 'Additional vs Pritzker:'],
                "map_2_sb79_true.html", df_neighborhoods['tot_true_sb79'].sum(), f"+{df_neighborhoods['add_true_sb79'].sum():,.0f}")
 
-    # 3. Train Only
     create_map("Map 3: SB 79 Train Only", 'tot_train_only',
                ['community', 'm3_val', 'm3_diff'], ['Neighborhood:', 'Total Units:', 'Additional vs Pritzker:'],
                "map_3_sb79_train.html", df_neighborhoods['tot_train_only'].sum(), f"+{df_neighborhoods['add_train_only'].sum():,.0f}")
 
-    # 4. Train + HF Bus
     create_map("Map 4: SB 79 Train + HF Bus", 'tot_train_and_hf_bus',
                ['community', 'm4_val', 'm4_diff'], ['Neighborhood:', 'Total Units:', 'Additional vs Pritzker:'],
                "map_4_sb79_train_hf.html", df_neighborhoods['tot_train_and_hf_bus'].sum(), f"+{df_neighborhoods['add_train_and_hf_bus'].sum():,.0f}")
 
-    # 5. Train + Bus Options
     create_map("Map 5: SB 79 Train + (HF Bus OR 2 Bus Lines)", 'tot_train_and_bus_combo',
                ['community', 'm5_val', 'm5_diff'], ['Neighborhood:', 'Total Units:', 'Additional vs Pritzker:'],
                "map_5_sb79_train_hf_any2.html", df_neighborhoods['tot_train_and_bus_combo'].sum(), f"+{df_neighborhoods['add_train_and_bus_combo'].sum():,.0f}")

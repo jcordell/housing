@@ -1,3 +1,4 @@
 *.duckdb
 *json
 *.html
+*.csv
