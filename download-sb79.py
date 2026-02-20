@@ -4,23 +4,23 @@ import duckdb
 
 DB_FILE = "sb79_housing.duckdb"
 
-# Added the CTA 'L' stations dataset to serve as our "Tier 1 TOD Stops"
 DATASETS = {
     'chicago_zoning.geojson': 'https://data.cityofchicago.org/api/geospatial/djph-xxwh?method=export&format=GeoJSON',
     'neighborhoods.geojson': 'https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON',
-    'cta_stations.geojson': 'https://data.cityofchicago.org/api/geospatial/8pix-ypme?method=export&format=GeoJSON'
-    # Assuming 'cook_parcels.geojson' is already handled/downloaded locally
+    'cta_stations.geojson': 'https://data.cityofchicago.org/api/geospatial/8pix-ypme?method=export&format=GeoJSON',
+    # CORRECTED: Updated the Socrata endpoint ID for the CTA Bus Routes
+    'cta_bus_routes.geojson': 'https://data.cityofchicago.org/api/geospatial/6uva-a5ei?method=export&format=GeoJSON'
 }
 
 def download_file(filename, url):
     if os.path.exists(filename) and os.path.getsize(filename) > 50000:
         print(f"✅ {filename} exists. Skipping.")
         return
-    
+
     print(f"⬇️  Downloading {filename}...")
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        r = requests.get(url, headers=headers, stream=True, timeout=30)
+        r = requests.get(url, headers=headers, stream=True, timeout=60)
         r.raise_for_status()
         with open(filename, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
@@ -38,7 +38,8 @@ def setup_database():
         'chicago_zoning.geojson': 'zoning',
         'cook_parcels.geojson': 'parcels',
         'neighborhoods.geojson': 'neighborhoods',
-        'cta_stations.geojson': 'transit_stops'
+        'cta_stations.geojson': 'transit_stops',
+        'cta_bus_routes.geojson': 'bus_routes'
     }
 
     for filename, table_name in table_map.items():
@@ -59,4 +60,4 @@ if __name__ == "__main__":
     for filename, url in DATASETS.items():
         download_file(filename, url)
     setup_database()
-    print("\n🚀 Ready! Now run: python3 generate-sb79-map.py")
+    print("\n🚀 Ready! Now run: python3 generate-maps.py")
