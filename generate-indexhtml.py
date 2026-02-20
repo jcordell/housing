@@ -223,14 +223,14 @@ def analyze_and_map():
     # ---------------------------------------------------------
     # AUTO-GENERATE MARKDOWN FILE
     # ---------------------------------------------------------
-    markdown_content = """# Proposal for a Transit-Oriented Amendment to the BUILD Act
+    markdown_content = """# Proposal for a TOD Amendment to the BUILD Act
 
 Illinois is facing a severe housing shortage. Governor Pritzker’s proposed BUILD Act is a critical first step, unlocking "missing middle" housing by allowing multi-unit developments on historically restricted single-family lots. Our analysis shows the base BUILD Act could unlock **{{ pritzker_total }}** new housing units across Chicago.
 
 This proposal analyzes adding a Transit-Oriented Development (TOD) amendment similar to California's recently passed SB79.
 
 ## The "Missing Middle" in High-Cost Areas
-Standard upzoning often fails to penetrate a city's wealthiest, most transit-rich neighborhoods. We analyzed the Zillow Observed Rent Index (ZORI) to identify Chicago's top 15 neighborhoods experiencing the most extreme 5-year rent spikes. Under the base BUILD Act, only **{{ pct_pritzker }}%** of new citywide housing capacity falls within these critical high-cost areas, despite them comprising **{{ pct_top15_area }}%** of the city's residential and commercial land.
+We analyzed the Zillow Observed Rent Index (ZORI) to identify Chicago's top 15 neighborhoods experiencing the most extreme 5-year rent spikes. Under the base BUILD Act, only **{{ pct_pritzker }}%** of new citywide housing capacity falls within these critical high-cost areas, despite them comprising **{{ pct_top15_area }}%** of the city's residential land.
 
 Why? Because the most desirable, walkable neighborhoods in Chicago are desirable *because* they are already dense.
 
@@ -240,16 +240,19 @@ Why? Because the most desirable, walkable neighborhoods in Chicago are desirable
 
 Because land acquisition costs in these highly restricted neighborhoods are high, developers cannot afford to tear down a $1.5M single-family home just to build a 3-flat. To unlock housing in high-opportunity, transit rich areas, we must allow mid-rise density.
 
-In the Top 5 most expensive neighborhoods, the base BUILD Act only generates **{{ top5_pritzker }}** units. Layering the True CA SB 79 transit density standard generates **{{ top5_sb79_full }}** units in those exact same areas.
+In the Top 5 most expensive neighborhoods, the base BUILD Act only upzones a potential **{{ top5_pritzker }}** new units. Layering the CA SB79 transit density standard generates **{{ top5_sb79_full }}** units in those same neighborhoods.
 
 ## The Solution: A California-Style SB 79 Amendment
 By adopting a transit-oriented density model similar to [California's SB 79](https://leginfo.legislature.ca.gov/), we can shift where housing gets built.
 
 SB 79 effectively legalizes **5 to 10-story mid-rise apartment buildings**, similar to the many courtyard buildings already built everywhere in Chicago, by guaranteeing baseline densities of 100 to 120 units per acre near high-frequency transit hubs. It overrides local exclusionary zoning and limits restrictive parking minimums, allowing dense, walkable communities in areas where the land values are highest.
 
-If Illinois adopts a True CA SB 79 model (focusing on Trains and frequent bus Transit/Intersections):
+If Illinois adopts a True CA SB 79 model allowing building near trains and bus intersections:
+
 * Upzoning allows building **{{ true_sb79_total }}** units.
+
 * We unlock **{{ true_sb79_diff }}** *additional* homes compared to the base BUILD Act.
+
 * The share of new housing built in Chicago's 15 most expensive, highest-rent-growth neighborhoods nearly doubles to **{{ pct_sb79 }}%**.
 
 ## Economic & Fiscal Impact: The Property Tax Yield
@@ -262,10 +265,10 @@ Upzoning is also a fiscal boon. When we measure property tax yield per acre in C
 By allowing mid-rise buildings near transit, the city captures nearly **{{ tax_multiplier }}x the tax revenue per acre** compared to single-family homes, expanding the tax base without raising property tax rates on existing working-class homeowners.
 
 ## New Affordable Housing Units
-Chicago's Affordable Requirements Ordinance (ARO) requires upzoned properties to designate 20% of units as affordable. This upzoning permits **{{ exp_sb79_diff }}** new units strictly in exclusionary neighborhoods. This amendment would mandate the private construction of **{{ affordable_units }} permanently affordable homes** in areas with the city's best schools, transit, and job access while costing taxpayers zero dollars.
+Chicago's Affordable Requirements Ordinance (ARO) requires upzoned properties to designate 20% of units as affordable. This upzoning permits **{{ exp_sb79_diff }}** new units strictly in the 15 most expensive neighborhoods. This amendment would mandate the private construction of **{{ affordable_units }} permanently affordable homes** in areas with the city's best schools, transit, and job access while costing taxpayers zero dollars.
 
 ## Transit Proximity Policy Options
-We analyzed four different legislative requirements for triggering transit-based upzoning. We compared the base True SB 79 text (Train + BRT/Intersections) to alternatives requiring varying levels of access to transportation.
+We analyzed four different legislative requirements for triggering transit-based upzoning. We compared the base SB79 text (upzoning units near Trains OR Bus Intersections) to alternatives requiring varying levels of access to transportation.
 
 We calculated the following housing capacity increases for each proposal:
 

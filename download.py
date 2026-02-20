@@ -1,102 +1,53 @@
+import os
 import requests
 import duckdb
-import os
-import time
 
-# --- Configuration ---
-DB_FILE = "chicago_housing.duckdb"
+DB_FILE = "sb79_housing.duckdb"
 
-# We define a Primary URL (Official) and a Backup URL (GitHub Mirror)
 DATASETS = {
-    "chicago_zoning.geojson": {
-        "primary": "https://data.cityofchicago.org/api/geospatial/dj47-wfun?method=export&format=GeoJSON",
-        "backup": None
-    },
-    "cook_parcels.geojson": {
-        "primary": "https://datacatalog.cookcountyil.gov/api/geospatial/77tz-riq7?method=export&format=GeoJSON",
-        "backup": None
-    },
-    "wards.geojson": {
-        "primary": "https://data.cityofchicago.org/api/geospatial/p293-wvbd?method=export&format=GeoJSON",
-        "backup": "https://raw.githubusercontent.com/uchicago-vis-pl/chicago-vis-pl.github.io/master/data/Wards_2015.geojson" # Fallback if needed
-    },
-    # This is the problematic file. We add a reliable GitHub mirror as backup.
-    "neighborhoods.geojson": {
-        "primary": "https://data.cityofchicago.org/api/geospatial/cauq-8yn6?method=export&format=GeoJSON",
-        "backup": "https://raw.githubusercontent.com/RandomFractals/ChicagoCrimes/master/data/chicago-community-areas.geojson"
-    }
+    'chicago_zoning.geojson': 'https://data.cityofchicago.org/api/geospatial/djph-xxwh?method=export&format=GeoJSON',
+    'neighborhoods.geojson': 'https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON',
+    'cta_stations.geojson': 'https://data.cityofchicago.org/api/geospatial/8pix-ypme?method=export&format=GeoJSON',
+    'cta_bus_routes.geojson': 'https://data.cityofchicago.org/api/geospatial/6uva-a5ei?method=export&format=GeoJSON',
+    # NEW: Zillow Observed Rent Index (ZORI) by Neighborhood
+    'zillow_rent.csv': 'https://files.zillowstatic.com/research/public_csvs/zori/Neighborhood_zori_uc_sfrcondomfr_sm_month.csv'
 }
 
-def download_file(filename, urls):
-    # 1. Clean up bad files (fixes your 53-byte error)
-    if os.path.exists(filename):
-        file_size = os.path.getsize(filename)
-        if file_size > 50000:  # 50KB safety check
-            print(f"✅ {filename} exists ({file_size / 1024:.1f} KB). Skipping.")
-            return
-        else:
-            print(f"⚠️  {filename} is too small ({file_size} bytes). Deleting and re-downloading...")
-            os.remove(filename)
+def download_file(filename, url):
+    if os.path.exists(filename) and os.path.getsize(filename) > 50000:
+        print(f"✅ {filename} exists. Skipping.")
+        return
 
-    # 2. Try Primary URL
-    headers = {'User-Agent': 'Mozilla/5.0 (DataProject; python-requests)'}
-
-    print(f"⬇️  Downloading {filename} (Primary Source)...")
+    print(f"⬇️  Downloading {filename}...")
     try:
-        r = requests.get(urls['primary'], headers=headers, stream=True, timeout=30)
+        headers = {'User-Agent': 'Mozilla/5.0 (DataProject; python-requests)'}
+        r = requests.get(url, headers=headers, stream=True, timeout=60)
         r.raise_for_status()
         with open(filename, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
-
-        # Validate size immediately
-        if os.path.getsize(filename) < 50000:
-            raise Exception("File downloaded but is too small (API Error).")
-
         print(f"✅ Successfully saved {filename}.")
-        return
-
     except Exception as e:
-        print(f"❌ Primary source failed: {e}")
-
-    # 3. Try Backup URL (if primary failed)
-    if urls['backup']:
-        print(f"🔄 Attempting Backup Source for {filename}...")
-        try:
-            r = requests.get(urls['backup'], headers=headers, stream=True, timeout=30)
-            r.raise_for_status()
-            with open(filename, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            print(f"✅ Saved {filename} from backup mirror.")
-        except Exception as e:
-            print(f"❌ Backup source also failed: {e}")
-    else:
-        print("❌ No backup source available.")
+        print(f"❌ Failed to download {filename}: {e}")
 
 def setup_database():
     print("\n📦 Loading data into DuckDB...")
     con = duckdb.connect(DB_FILE)
     con.execute("INSTALL spatial; LOAD spatial;")
 
-    # Map file names to table names
+    # We skip zillow_rent.csv here because we will analyze it dynamically in Pandas
     table_map = {
         'chicago_zoning.geojson': 'zoning',
         'cook_parcels.geojson': 'parcels',
-        'wards.geojson': 'wards',
-        'neighborhoods.geojson': 'neighborhoods'
+        'neighborhoods.geojson': 'neighborhoods',
+        'cta_stations.geojson': 'transit_stops',
+        'cta_bus_routes.geojson': 'bus_routes'
     }
 
     for filename, table_name in table_map.items():
         if not os.path.exists(filename):
             print(f"⚠️  Skipping '{table_name}' because {filename} is missing.")
             continue
-
-        # Check size one last time
-        if os.path.getsize(filename) < 5000:
-            print(f"⚠️  Skipping '{table_name}' because file is corrupted.")
-            continue
-
         try:
             con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM ST_Read('{filename}')")
             count = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
@@ -107,10 +58,7 @@ def setup_database():
     con.close()
 
 if __name__ == "__main__":
-    # 1. Download
-    for filename, url_set in DATASETS.items():
-        download_file(filename, url_set)
-
-    # 2. Load
+    for filename, url in DATASETS.items():
+        download_file(filename, url)
     setup_database()
-    print("\n🚀 Ready! Now run: python3 script.py")
+    print("\n🚀 Ready! Now run: python3 generate-all-maps.py")
