@@ -283,6 +283,8 @@ We calculated the following housing capacity increases for each proposal:
 <br>
 
 *Use the layer toggle on the interactive map below to switch between the different transit-oriented density scenarios and see exactly how housing capacity shifts across Chicago's neighborhoods.*
+
+*Map looks best on desktop.*
 """
     with open('article.md', 'w') as f:
         f.write(markdown_content)
