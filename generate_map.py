@@ -12,6 +12,7 @@ def build_map(df_neighborhoods):
     for feature in geo_data['features']:
         name = feature['properties']['community'].upper()
         stats = unit_lookup.get(name, {})
+        feature['properties']['m0_val'] = f"{stats.get('feasible_existing', 0):,.0f}"
         feature['properties']['m1_val'] = f"{stats.get('new_pritzker', 0):,.0f}"
         feature['properties']['m2_val'] = f"{stats.get('tot_true_sb79', 0):,.0f}"
         feature['properties']['m2_diff'] = f"+{stats.get('add_true_sb79', 0):,.0f}"
@@ -46,6 +47,7 @@ def build_map(df_neighborhoods):
         folium.GeoJsonTooltip(fields=tooltip_fields, aliases=tooltip_aliases, style="background-color: black; color: white;").add_to(choro.geojson)
         choro.add_to(m)
 
+    add_layer("0. Status Quo (Currently Feasible)", 'feasible_existing', ['community', 'm0_val'], ['Neighborhood:', 'Currently Feasible Units:'], False)
     add_layer("1. Pritzker Upzoning", 'new_pritzker', ['community', 'm1_val'], ['Neighborhood:', 'Pritzker Units:'], False)
     add_layer("2. TRUE CA SB 79 (Train+BRT)", 'tot_true_sb79', ['community', 'm2_val', 'm2_diff'], ['Neighborhood:', 'Total SB 79 Units:', 'Difference vs Pritzker:'], True)
     add_layer("3. SB 79 Train Only", 'tot_train_only', ['community', 'm3_val', 'm3_diff'], ['Neighborhood:', 'Total Units:', 'Difference vs Pritzker:'], False)
@@ -71,6 +73,7 @@ def build_map(df_neighborhoods):
     </div>
     <script>
     var layerData = {{
+        "0. Status Quo (Currently Feasible)": {{ tot: "{df_neighborhoods['feasible_existing'].sum():,.0f}", add: "Current Baseline" }},
         "1. Pritzker Upzoning": {{ tot: "{df_neighborhoods['new_pritzker'].sum():,.0f}", add: "N/A (Baseline)" }},
         "2. TRUE CA SB 79 (Train+BRT)": {{ tot: "{df_neighborhoods['tot_true_sb79'].sum():,.0f}", add: "+{df_neighborhoods['add_true_sb79'].sum():,.0f}" }},
         "3. SB 79 Train Only": {{ tot: "{df_neighborhoods['tot_train_only'].sum():,.0f}", add: "+{df_neighborhoods['add_train_only'].sum():,.0f}" }},

@@ -3,7 +3,7 @@ from jinja2 import Template
 
 def build_website(template_data, map_html):
     print("Compiling Markdown and HTML...")
-    
+
     markdown_content = """# Proposal for a TOD Amendment to the BUILD Act
 
 Illinois is facing a severe housing shortage. Governor Pritzker’s proposed BUILD Act is a critical first step, unlocking "missing middle" housing by allowing multi-unit developments on historically restricted single-family lots. Our analysis shows the base BUILD Act could unlock **{{ pritzker_total }}** new housing units across Chicago.
@@ -51,12 +51,13 @@ Chicago's Affordable Requirements Ordinance (ARO) requires upzoned properties to
 ## Transit Proximity Policy Options
 We analyzed four different legislative requirements for triggering transit-based upzoning. We compared the base SB79 text (upzoning units near Trains OR Bus Intersections) to alternatives requiring varying levels of access to transportation.
 
-*(Note: Data filtered for feasibility. Parcels are only counted if the upzoning allows at least a 3x yield over existing capacity).*
+*(Note: Data filtered for financial feasibility. Parcels are only counted if the zoning allows a significant multiplier over existing capacity).*
 
 We calculated the following housing capacity increases for each proposal:
 
 | Proposal Name | Nearby Transit Requirement | Total New Housing Units | Additional vs Pritzker |
 | :--- | :--- | :--- | :--- |
+| **0. Status Quo** | Currently feasible un-built multifamily lots citywide. | **{{ feasible_existing }}** | *Current Baseline* |
 | **1. Original Pritzker** | Baseline "missing middle" upzoning applied evenly. | **{{ pritzker_total }}** | *Baseline* |
 | **2. True CA SB 79** | Train OR intersection of 2+ high-frequency buses. | **{{ true_sb79_total }}** | **{{ true_sb79_diff }}** |
 | **3. Train Only** | Strictly CTA/Metra rail stations. | **{{ train_only_total }}** | **{{ train_only_diff }}** |
@@ -69,7 +70,7 @@ We calculated the following housing capacity increases for each proposal:
 
 *Map looks best on desktop.*
 """
-    
+
     with open('article.md', 'w') as f:
         f.write(markdown_content)
 

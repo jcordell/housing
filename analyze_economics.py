@@ -26,13 +26,13 @@ def run_analysis():
             df_rent = pd.read_csv('zillow_rent.csv')
             df_chi_rent = df_rent[df_rent['City'] == 'Chicago'].copy()
             df_chi_rent['neighborhood_name'] = df_chi_rent['RegionName'].str.upper().str.replace('LAKEVIEW', 'LAKE VIEW')
-            
+
             date_cols = [c for c in df_chi_rent.columns if c.startswith('20')]
             if len(date_cols) >= 61:
                 latest_col = date_cols[-1]
                 five_yr_col = date_cols[-61]
                 df_chi_rent['rent_increase_pct'] = ((df_chi_rent[latest_col] - df_chi_rent[five_yr_col]) / df_chi_rent[five_yr_col]) * 100
-                
+
                 valid_nbhds = df_neighborhoods['neighborhood_name'].unique()
                 df_chi_rent = df_chi_rent[df_chi_rent['neighborhood_name'].isin(valid_nbhds)]
                 high_cost_nbhds = df_chi_rent.nlargest(15, 'rent_increase_pct')['neighborhood_name'].tolist()
@@ -47,6 +47,7 @@ def run_analysis():
     df_top5 = df_neighborhoods[df_neighborhoods['neighborhood_name'].isin(high_cost_nbhds[:5])]
     df_rest = df_neighborhoods[~df_neighborhoods['neighborhood_name'].isin(high_cost_nbhds[:15])]
 
+    feasible_existing = df_neighborhoods['feasible_existing'].sum()
     exp_pritzker = df_top15['new_pritzker'].sum()
     exp_sb79_full = df_top15['tot_true_sb79'].sum()
     exp_sb79_diff = df_top15['add_true_sb79'].sum()
@@ -61,7 +62,6 @@ def run_analysis():
     rest_pct_sqft = (df_rest['area_mf_zoned'].sum() / df_rest['total_area_sqft'].sum()) * 100 if df_rest['total_area_sqft'].sum() > 0 else 0
     pct_top15_area = (df_top15['total_area_sqft'].sum() / df_neighborhoods['total_area_sqft'].sum()) * 100 if df_neighborhoods['total_area_sqft'].sum() > 0 else 0
 
-    # Fiscal Modeling
     avg_sfh_value = 1200000
     avg_condo_value = 450000
     effective_tax_rate = 0.018
@@ -75,10 +75,10 @@ def run_analysis():
 
     tax_multiplier = midrise_yield_per_acre / sfh_yield_per_acre
 
-    # Terminal Output
     print("\n" + "="*80)
     print("HOUSING POLICY IMPACT ANALYSIS: (Filtered for Redevelopment Feasibility)")
     print("="*80)
+    print(f"0. Status Quo (Currently Feasible):              {feasible_existing:,.0f}")
     print(f"1. Original Pritzker Upzoning (Net New):         {df_neighborhoods['new_pritzker'].sum():,.0f}")
     print("-" * 80)
     print(f"2. TRUE CA SB 79 (Trains + BRT/Bus Intersections): {df_neighborhoods['tot_true_sb79'].sum():,.0f}")
@@ -89,25 +89,10 @@ def run_analysis():
     print(f"   ↳ Additional over Pritzker:                   {df_neighborhoods['add_train_and_bus_combo'].sum():,.0f}")
     print(f"5. SB 79 TRAIN + HIGH FREQ BUS:                  {df_neighborhoods['tot_train_and_hf_bus'].sum():,.0f}")
     print(f"   ↳ Additional over Pritzker:                   {df_neighborhoods['add_train_and_hf_bus'].sum():,.0f}")
-    print("="*80)
-    print("EQUITY IMPACT: TOP 15 GENTRIFYING/HIGH-RENT-GROWTH NEIGHBORHOODS")
-    print("-" * 80)
-    print(f"Top 15 Share of Citywide Developable Land:       {pct_top15_area:.1f}%")
-    print(f"Pritzker Units in these areas:                   {exp_pritzker:,.0f} ({pct_pritzker:.1f}% of total citywide)")
-    print(f"SB 79 Units in these areas:                      {exp_sb79_full:,.0f} ({pct_sb79:.1f}% of total citywide)")
-    print(f"↳ Extra units unlocked in exclusionary areas:    +{exp_sb79_diff:,.0f}")
-
-    print("="*80)
-    print("FISCAL IMPACT: PROPERTY TAX YIELD PER ACRE (TOP 5 NEIGHBORHOODS)")
-    print("="*80)
-    print(f"Single-Family Home Yield (14 units/acre):        ${sfh_yield_per_acre:,.0f} / acre")
-    print(f"Pritzker 4-Flat Yield (56 units/acre):           ${four_flat_yield_per_acre:,.0f} / acre")
-    print(f"SB 79 Mid-Rise Yield (100 units/acre):           ${midrise_yield_per_acre:,.0f} / acre")
-    print(f"↳ Revenue Multiplier: Mid-rises generate {tax_multiplier:.1f}x more tax revenue per acre than SFH.")
     print("="*80 + "\n")
 
-    # Template Data
     template_data = {
+        'feasible_existing': f"{feasible_existing:,.0f}",
         'pritzker_total': f"{df_neighborhoods['new_pritzker'].sum():,.0f}",
         'pct_pritzker': f"{pct_pritzker:.1f}",
         'true_sb79_total': f"{df_neighborhoods['tot_true_sb79'].sum():,.0f}",
@@ -131,5 +116,5 @@ def run_analysis():
         'midrise_yield': f"${midrise_yield_per_acre:,.0f}",
         'tax_multiplier': f"{tax_multiplier:.1f}"
     }
-    
+
     return df_neighborhoods, template_data

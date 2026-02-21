@@ -10,13 +10,14 @@ DATASETS = {
     'cta_stations.geojson': 'https://data.cityofchicago.org/api/geospatial/8pix-ypme?method=export&format=GeoJSON',
     'cta_bus_routes.geojson': 'https://data.cityofchicago.org/api/geospatial/6uva-a5ei?method=export&format=GeoJSON',
     'zillow_rent.csv': 'https://files.zillowstatic.com/research/public_csvs/zori/Neighborhood_zori_uc_sfrcondomfr_sm_month.csv',
-
-    # NEW: Cook County Assessor Parcel Universe (For UCLA Feasibility Filtering)
-    'assessor_universe.csv': 'https://datacatalog.cookcountyil.gov/api/views/pabr-t5kh/rows.csv?accessType=DOWNLOAD'
+    'assessor_universe.csv': 'https://datacatalog.cookcountyil.gov/api/views/pabr-t5kh/rows.csv?accessType=DOWNLOAD',
+    
+    # NEW: Filtered API call to get ONLY 2023 Assessed Values (Fast 50MB download)
+    'assessed_values_2023.csv': 'https://datacatalog.cookcountyil.gov/resource/uzyt-m557.csv?$where=year=2023&$limit=2000000'
 }
 
 def download_file(filename, url):
-    if os.path.exists(filename):
+    if os.path.exists(filename) and os.path.getsize(filename) > 50000:
         print(f"✅ {filename} exists. Skipping.")
         return
 
@@ -43,7 +44,8 @@ def setup_database():
         'neighborhoods.geojson': 'neighborhoods',
         'cta_stations.geojson': 'transit_stops',
         'cta_bus_routes.geojson': 'bus_routes',
-        'assessor_universe.csv': 'assessor_universe' # Added Assessor table
+        'assessor_universe.csv': 'assessor_universe',
+        'assessed_values_2023.csv': 'assessed_values'
     }
 
     for filename, table_name in table_map.items():

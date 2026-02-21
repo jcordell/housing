@@ -8,17 +8,16 @@ from generate_html import build_website
 
 def main():
     parser = argparse.ArgumentParser(description="Housing Policy Impact Analyzer Pipeline")
-    parser.add_argument('--recalculate', action='store_true', help="Recalculate all parcel data in DuckDB (Slow)")
-    parser.add_argument('--parcels-only', action='store_true', help="Only run parcel calculations and exit")
+    parser.add_argument('--recalculate', action='store_true', help="Recalculate ALL spatial data (Slow)")
+    parser.add_argument('--filter-only', action='store_true', help="Only re-apply the feasibility filters to existing spatial data (Fast)")
     parser.add_argument('--no-browser', action='store_true', help="Do not automatically open the browser at the end")
     args = parser.parse_args()
 
-    # Step 1: Data Engine (Only runs if you explicitly ask it to)
-    if args.recalculate or args.parcels_only:
-        run_parcel_calculations()
-        if args.parcels_only:
-            print("✅ Parcel calculations complete. Exiting as requested.")
-            return
+    # Data Engine Routing
+    if args.recalculate:
+        run_parcel_calculations(full_recalculate=True)
+    elif args.filter_only:
+        run_parcel_calculations(full_recalculate=False)
 
     # Step 2: Economics and Analysis
     df, context = run_analysis()
