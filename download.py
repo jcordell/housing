@@ -11,12 +11,12 @@ DATASETS = {
     'cta_bus_routes.geojson': 'https://data.cityofchicago.org/api/geospatial/6uva-a5ei?method=export&format=GeoJSON',
     'zillow_rent.csv': 'https://files.zillowstatic.com/research/public_csvs/zori/Neighborhood_zori_uc_sfrcondomfr_sm_month.csv',
 
-    # NEW: Fast, single-year Cook County Parcel snapshot
-    'cook_parcel_universe.csv': 'https://datacatalog.cookcountyil.gov/api/views/pabr-t5kh/rows.csv?accessType=DOWNLOAD'
+    # NEW: Cook County Assessor Parcel Universe (For UCLA Feasibility Filtering)
+    'assessor_universe.csv': 'https://datacatalog.cookcountyil.gov/api/views/pabr-t5kh/rows.csv?accessType=DOWNLOAD'
 }
 
 def download_file(filename, url):
-    if os.path.exists(filename) and os.path.getsize(filename) > 50000:
+    if os.path.exists(filename):
         print(f"✅ {filename} exists. Skipping.")
         return
 
@@ -42,7 +42,8 @@ def setup_database():
         'cook_parcels.geojson': 'parcels',
         'neighborhoods.geojson': 'neighborhoods',
         'cta_stations.geojson': 'transit_stops',
-        'cta_bus_routes.geojson': 'bus_routes'
+        'cta_bus_routes.geojson': 'bus_routes',
+        'assessor_universe.csv': 'assessor_universe' # Added Assessor table
     }
 
     for filename, table_name in table_map.items():
@@ -50,7 +51,10 @@ def setup_database():
             print(f"⚠️  Skipping '{table_name}' because {filename} is missing.")
             continue
         try:
-            con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM ST_Read('{filename}')")
+            if filename.endswith('.csv'):
+                con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_csv_auto('{filename}', ignore_errors=true)")
+            else:
+                con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM ST_Read('{filename}')")
             count = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
             print(f"   ✅ Loaded table '{table_name}' ({count:,} rows)")
         except Exception as e:
@@ -62,4 +66,4 @@ if __name__ == "__main__":
     for filename, url in DATASETS.items():
         download_file(filename, url)
     setup_database()
-    print("\n🚀 Ready! Now run: python3 generate-indexhtml.py")
+    print("\n🚀 Ready! Now run: python3 main.py --recalculate")
