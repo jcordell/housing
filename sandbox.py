@@ -1,6 +1,6 @@
 import duckdb
-import time
 import pandas as pd
+import time
 from financial_model import run_spatial_pipeline
 
 DB_FILE = "sb79_housing.duckdb"
@@ -20,6 +20,28 @@ def run_sandbox():
 
     print(f"\n✅ Total Sandbox Runtime: {time.time() - global_start:.2f} seconds\n")
     print(df_agg.to_string(index=False))
+
+    # --- 🔍 NEW: DIAGNOSTIC FAILURE ANALYSIS ---
+    print("\n🔍 DIAGNOSTICS: Why are properties failing? ====================================")
+
+    def get_failure_reason(row):
+        if row['feasible_existing'] > 0: return '✅ Pass (Feasible)'
+        if not row['pass_zoning_class']: return '❌ Failed: Invalid Zoning (OS/POS/PMD)'
+        if not row['pass_prop_class']: return '❌ Failed: Invalid Prop Class (Condo/Exempt)'
+        if not row['pass_age_value']: return '❌ Failed: Building Too New or Valuable'
+        if not row['pass_max_units']: return '❌ Failed: Too Many Existing Units (>40)'
+        if not row['pass_unit_mult']: return '❌ Failed: 2x Unit Multiplier Check'
+        if not row['pass_lot_density']: return '❌ Failed: Existing Lot Already Too Dense'
+        if not row['pass_sqft_mult']: return '❌ Failed: 1.25x SqFt Check'
+        if not row['pass_financial_existing']: return '❌ Failed: Not Profitable (Pro Forma ROI)'
+        return '❌ Failed: Other'
+
+    df_raw['status'] = df_raw.apply(get_failure_reason, axis=1)
+    status_counts = df_raw['status'].value_counts()
+
+    print(f"Total Parcels Evaluated: {len(df_raw):,}\n")
+    for status, count in status_counts.items():
+        print(f"{count:7,d} parcels -> {status}")
 
     print("\n🔍 DEBUG LOG: Sample of properties marked 'feasible_existing' ====================================\n")
     df_feasible = df_raw[df_raw['feasible_existing'] > 0]
@@ -42,7 +64,6 @@ def run_sandbox():
             total_cost = (row['acquisition_cost'] + (row['current_capacity'] * cpu)) * profit_margin
 
             print(f"   📊 MARKET MULTIPLIER: {row['market_correction_multiplier']:.2f}x (Applied to Tax Assessed Value of ${assessed_val:,.0f})")
-            print(f"   🏗️  EST. COST PER UNIT: ${cpu:,.0f}")
             print(f"   💰 MATH: Acq Cost: ${row['acquisition_cost']:,.0f} + Construction: ${(row['current_capacity']*cpu):,.0f} = Total Cost: ${total_cost:,.0f} (inc. profit)")
             print(f"            Expected Revenue: ${total_revenue:,.0f}")
             print("-" * 80)

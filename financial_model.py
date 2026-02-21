@@ -19,11 +19,102 @@ CHICAGO_SALES_MULTIPLIERS = {
 }
 DEFAULT_SALES_MULTIPLIER = 1.40
 
+def get_financial_filter_ctes(source_table_name):
+    return f"""
+        filtered_parcels AS (
+            SELECT center_geom, area_sqft, parcels_combined, zone_class, neighborhood_name, prop_address,
+                local_rent, value_per_new_unit, acquisition_cost, existing_units, building_age, existing_sqft,
+                current_capacity, primary_prop_class, tot_bldg_value, tot_land_value, market_correction_multiplier,
+                cost_per_unit_low_density, cost_per_unit_high_density, target_profit_margin,
+                
+                -- ====================================================================
+                -- 🔍 DIAGNOSTIC FLAGS: Explicitly evaluate every single constraint
+                -- ====================================================================
+                (current_capacity >= (GREATEST(existing_units, 1.0) * 2.0)) as pass_unit_mult,
+                ((current_capacity * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25)) as pass_sqft_mult,
+                
+                -- FIXED: Limit to standard neighborhood lots (<= 1 Acre) to prevent mega-lot distortion
+                ((existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560) as pass_lot_density,
+                
+                (existing_units < 40) as pass_max_units,
+                (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) as pass_age_value,
+                
+                (zone_class NOT IN ('OS', 'POS', 'PMD')) as pass_zoning_class,
+                (primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX') as pass_prop_class,
+                
+                -- FIXED: Dynamically applies High-Density costs for anything over 6 units
+                ((current_capacity * value_per_new_unit) > (acquisition_cost + (current_capacity * CASE WHEN current_capacity > 6 THEN cost_per_unit_high_density ELSE cost_per_unit_low_density END)) * target_profit_margin) as pass_financial_existing,
+                
+                -- ====================================================================
+                
+                CASE WHEN 
+                    current_capacity >= (GREATEST(existing_units, 1.0) * 2.0) AND           
+                    (current_capacity * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND  
+                    (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560 AND                    
+                    existing_units < 40 AND                                                 
+                    ((building_age >= 70 OR (building_age = 0 AND tot_bldg_value < 100000)) AND tot_bldg_value < 1000000) AND                           
+                    zone_class NOT IN ('OS', 'POS', 'PMD') AND                              
+                    primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND                                   
+                    (current_capacity * value_per_new_unit) > (acquisition_cost + (current_capacity * CASE WHEN current_capacity > 6 THEN cost_per_unit_high_density ELSE cost_per_unit_low_density END)) * target_profit_margin
+                THEN GREATEST(0, current_capacity - existing_units) ELSE 0 END as feasible_existing,
+
+                CASE WHEN 
+                    pritzker_capacity >= (GREATEST(existing_units, 1.0) * 2.0) AND 
+                    (pritzker_capacity * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND 
+                    (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560 AND existing_units < 40 AND ((building_age >= 70 OR (building_age = 0 AND tot_bldg_value < 100000)) AND tot_bldg_value < 1000000) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
+                    (pritzker_capacity * value_per_new_unit) > (acquisition_cost + (pritzker_capacity * cost_per_unit_low_density)) * target_profit_margin
+                THEN GREATEST(0, pritzker_capacity - current_capacity) ELSE 0 END as new_pritzker,
+                
+                CASE WHEN 
+                    cap_true_sb79 >= (GREATEST(existing_units, 1.0) * 2.0) AND 
+                    (cap_true_sb79 * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND 
+                    (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560 AND existing_units < 40 AND ((building_age >= 70 OR (building_age = 0 AND tot_bldg_value < 100000)) AND tot_bldg_value < 1000000) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
+                    (cap_true_sb79 * value_per_new_unit) > (acquisition_cost + (cap_true_sb79 * cost_per_unit_high_density)) * target_profit_margin
+                THEN GREATEST(0, cap_true_sb79 - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_true_sb79,
+                
+                CASE WHEN 
+                    cap_true_sb79 >= (GREATEST(existing_units, 1.0) * 2.0) AND 
+                    (cap_true_sb79 * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND 
+                    (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560 AND existing_units < 40 AND ((building_age >= 70 OR (building_age = 0 AND tot_bldg_value < 100000)) AND tot_bldg_value < 1000000) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
+                    (cap_true_sb79 * value_per_new_unit) > (acquisition_cost + (cap_true_sb79 * cost_per_unit_high_density)) * target_profit_margin
+                THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_true_sb79) - current_capacity) ELSE 0 END as tot_true_sb79,
+                
+                CASE WHEN cap_train_only >= (GREATEST(existing_units, 1.0) * 2.0) AND (cap_train_only * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560 AND existing_units < 40 AND ((building_age >= 70 OR (building_age = 0 AND tot_bldg_value < 100000)) AND tot_bldg_value < 1000000) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
+                (cap_train_only * value_per_new_unit) > (acquisition_cost + (cap_train_only * cost_per_unit_high_density)) * target_profit_margin
+                THEN GREATEST(0, cap_train_only - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_train_only,
+                
+                CASE WHEN cap_train_only >= (GREATEST(existing_units, 1.0) * 2.0) AND (cap_train_only * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560 AND existing_units < 40 AND ((building_age >= 70 OR (building_age = 0 AND tot_bldg_value < 100000)) AND tot_bldg_value < 1000000) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
+                (cap_train_only * value_per_new_unit) > (acquisition_cost + (cap_train_only * cost_per_unit_high_density)) * target_profit_margin
+                THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_only) - current_capacity) ELSE 0 END as tot_train_only,
+                
+                CASE WHEN cap_train_and_hf_bus >= (GREATEST(existing_units, 1.0) * 2.0) AND (cap_train_and_hf_bus * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560 AND existing_units < 40 AND ((building_age >= 70 OR (building_age = 0 AND tot_bldg_value < 100000)) AND tot_bldg_value < 1000000) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
+                (cap_train_and_hf_bus * value_per_new_unit) > (acquisition_cost + (cap_train_and_hf_bus * cost_per_unit_high_density)) * target_profit_margin
+                THEN GREATEST(0, cap_train_and_hf_bus - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_train_and_hf_bus,
+                
+                CASE WHEN cap_train_and_hf_bus >= (GREATEST(existing_units, 1.0) * 2.0) AND (cap_train_and_hf_bus * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560 AND existing_units < 40 AND ((building_age >= 70 OR (building_age = 0 AND tot_bldg_value < 100000)) AND tot_bldg_value < 1000000) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
+                (cap_train_and_hf_bus * value_per_new_unit) > (acquisition_cost + (cap_train_and_hf_bus * cost_per_unit_high_density)) * target_profit_margin
+                THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_hf_bus) - current_capacity) ELSE 0 END as tot_train_and_hf_bus,
+                
+                CASE WHEN cap_train_and_bus_combo >= (GREATEST(existing_units, 1.0) * 2.0) AND (cap_train_and_bus_combo * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560 AND existing_units < 40 AND ((building_age >= 70 OR (building_age = 0 AND tot_bldg_value < 100000)) AND tot_bldg_value < 1000000) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
+                (cap_train_and_bus_combo * value_per_new_unit) > (acquisition_cost + (cap_train_and_bus_combo * cost_per_unit_high_density)) * target_profit_margin
+                THEN GREATEST(0, cap_train_and_bus_combo - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_train_and_bus_combo,
+                
+                CASE WHEN cap_train_and_bus_combo >= (GREATEST(existing_units, 1.0) * 2.0) AND (cap_train_and_bus_combo * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560 AND existing_units < 40 AND ((building_age >= 70 OR (building_age = 0 AND tot_bldg_value < 100000)) AND tot_bldg_value < 1000000) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
+                (cap_train_and_bus_combo * value_per_new_unit) > (acquisition_cost + (cap_train_and_bus_combo * cost_per_unit_high_density)) * target_profit_margin
+                THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_bus_combo) - current_capacity) ELSE 0 END as tot_train_and_bus_combo,
+
+                parcels_combined, area_sqft,
+                
+                CASE WHEN zone_class LIKE 'RM-%' OR zone_class LIKE 'RT-%' THEN parcels_combined ELSE 0 END as parcels_mf_zoned,
+                CASE WHEN zone_class LIKE 'RM-%' OR zone_class LIKE 'RT-%' THEN area_sqft ELSE 0 END as area_mf_zoned
+                
+            FROM {source_table_name}
+        )
+    """
+
 def run_spatial_pipeline(con, is_sandbox=False):
     """
     Executes the entire spatial and financial data pipeline.
-    If is_sandbox=True, it filters for 4 test neighborhoods.
-    If is_sandbox=False, it runs citywide.
     """
 
     df_rents = pd.DataFrame(list(CHICAGO_NEW_BUILD_RENTS.items()), columns=['neighborhood_name', 'monthly_rent'])
@@ -148,7 +239,7 @@ def run_spatial_pipeline(con, is_sandbox=False):
     """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
-    # --- STEP 4: NEIGHBORHOOD MEDIAN SALES RATIO ---
+    # --- STEP 4: VALUE-STRATIFIED SALES RATIO ---
     t0 = time.time()
     try:
         con.execute("SELECT 1 FROM parcel_sales LIMIT 1")
@@ -157,7 +248,7 @@ def run_spatial_pipeline(con, is_sandbox=False):
         has_sales_data = False
 
     if has_sales_data:
-        print("⏳ [4/5] Calculating Dynamic Sales Ratios...", end="", flush=True)
+        print("⏳ [4/5] Calculating Stratified Sales Ratios by Value Tier...", end="", flush=True)
         con.execute("""
             CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS
             WITH clean_sales AS (
@@ -168,16 +259,41 @@ def run_spatial_pipeline(con, is_sandbox=False):
             ),
             valid_ratios AS (
                 SELECT ep.neighborhood_name,
+                       CASE 
+                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 250000 THEN 'T1_UNDER_250K'
+                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 500000 THEN 'T2_250K_500K'
+                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 1000000 THEN 'T3_500K_1M'
+                           ELSE 'T4_OVER_1M' 
+                       END as value_bucket,
                        (s.sale_price / (ep.tot_bldg_value + ep.tot_land_value)) as ratio
                 FROM step3_distances ep
                 JOIN clean_sales s ON ep.pin10 = s.pin10
                 WHERE (ep.tot_bldg_value + ep.tot_land_value) > 20000
+            ),
+            bucket_medians AS (
+                SELECT neighborhood_name, value_bucket, MEDIAN(ratio) as bucket_multiplier
+                FROM valid_ratios
+                WHERE ratio BETWEEN 0.5 AND 3.5
+                GROUP BY neighborhood_name, value_bucket
+            ),
+            neighborhood_medians AS (
+                SELECT neighborhood_name, MEDIAN(ratio) as neighborhood_multiplier
+                FROM valid_ratios
+                WHERE ratio BETWEEN 0.5 AND 3.5
+                GROUP BY neighborhood_name
+            ),
+            all_buckets AS (
+                SELECT 'T1_UNDER_250K' as value_bucket UNION ALL
+                SELECT 'T2_250K_500K' UNION ALL
+                SELECT 'T3_500K_1M' UNION ALL
+                SELECT 'T4_OVER_1M'
             )
-            SELECT neighborhood_name,
-                   MEDIAN(ratio) as market_correction_multiplier
-            FROM valid_ratios
-            WHERE ratio BETWEEN 0.5 AND 3.5 
-            GROUP BY neighborhood_name;
+            SELECT n.neighborhood_name, 
+                   ab.value_bucket,
+                   COALESCE(b.bucket_multiplier, n.neighborhood_multiplier) as market_correction_multiplier
+            FROM neighborhood_medians n
+            CROSS JOIN all_buckets ab
+            LEFT JOIN bucket_medians b ON n.neighborhood_name = b.neighborhood_name AND ab.value_bucket = b.value_bucket;
         """)
     else:
         print("⏳ [4/5] API down. Falling back to hardcoded Market Correction Multipliers...", end="", flush=True)
@@ -185,112 +301,61 @@ def run_spatial_pipeline(con, is_sandbox=False):
         con.register('fallback_mults_df', df_mults)
         con.execute("""
             CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS 
-            SELECT neighborhood_name, fallback_mult as market_correction_multiplier 
+            SELECT neighborhood_name, value_bucket, fallback_mult as market_correction_multiplier 
             FROM fallback_mults_df
+            CROSS JOIN (SELECT 'T1_UNDER_250K' as value_bucket UNION SELECT 'T2_250K_500K' UNION SELECT 'T3_500K_1M' UNION SELECT 'T4_OVER_1M') buckets
         """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
-    # --- STEP 5: FINANCIALS ---
+    # --- STEP 5: FINANCIALS WITH CAPPED CAPACITY AND NULL PROTECTION ---
     t0 = time.time()
     print("⏳ [5/5] Executing Real Estate Pro Forma equations...", end="", flush=True)
+
     con.execute(f"""
-        CREATE OR REPLACE TEMPORARY TABLE step5_pro_forma AS
-        WITH pro_forma_parcels AS (
-            SELECT pd.geom_3435 as center_geom, pd.neighborhood_name, pd.area_sqft, pd.zone_class, 1 as parcels_combined, pd.existing_units as tot_existing_units, pd.primary_prop_class, pd.tot_bldg_value, pd.tot_land_value, pd.building_age, pd.existing_sqft, pd.prop_address,
-                
-                COALESCE(r.monthly_rent, {DEFAULT_NEW_BUILD_RENT}) as local_rent,
-                ((COALESCE(r.monthly_rent, {DEFAULT_NEW_BUILD_RENT}) * 12.0) / 0.055) as value_per_new_unit,
-                
-                COALESCE(nsr.market_correction_multiplier, {DEFAULT_SALES_MULTIPLIER}) as market_correction_multiplier,
-                GREATEST((COALESCE(pd.tot_bldg_value, 0.0) + COALESCE(pd.tot_land_value, 0.0)) * COALESCE(nsr.market_correction_multiplier, {DEFAULT_SALES_MULTIPLIER}), 10000.0) as acquisition_cost,
-                
-                CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
-                     THEN 300000.0 ELSE 240000.0 END as cost_per_unit_low_density,
-                
-                CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
-                     THEN 420000.0 ELSE 336000.0 END as cost_per_unit_high_density,
-                
-                1.15 as target_profit_margin,
-                
-                GREATEST(1, CASE WHEN pd.zone_class LIKE 'RS-1%' OR pd.zone_class LIKE 'RS-2%' THEN FLOOR(pd.area_sqft / 5000) WHEN pd.zone_class LIKE 'RS-3%' THEN FLOOR(pd.area_sqft / 2500) WHEN pd.zone_class LIKE 'RT-3.5%' THEN FLOOR(pd.area_sqft / 1250) WHEN pd.zone_class LIKE 'RT-4%' THEN FLOOR(pd.area_sqft / 1000) WHEN pd.zone_class LIKE 'RM-4.5%' OR pd.zone_class LIKE 'RM-5%' THEN FLOOR(pd.area_sqft / 400) WHEN pd.zone_class LIKE 'RM-6%' OR pd.zone_class LIKE 'RM-6.5%' THEN FLOOR(pd.area_sqft / 200) WHEN pd.zone_class LIKE '%-1' THEN FLOOR(pd.area_sqft / 1000) WHEN pd.zone_class LIKE '%-2' OR pd.zone_class LIKE '%-3' THEN FLOOR(pd.area_sqft / 400) WHEN pd.zone_class LIKE '%-5' OR pd.zone_class LIKE '%-6' THEN FLOOR(pd.area_sqft / 200) ELSE FLOOR(pd.area_sqft / 1000) END) as current_capacity,
-                CASE WHEN pd.zone_class IN ('RS-1', 'RS-2', 'RS-3') THEN CASE WHEN pd.area_sqft < 2500 THEN 1 WHEN pd.area_sqft < 5000 THEN 4 WHEN pd.area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END as pritzker_capacity,
-                CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) WHEN pd.is_train_2640 OR pd.is_brt_1320 OR pd.hf_bus_count >= 2 THEN FLOOR((pd.area_sqft / 43560.0) * 100) WHEN pd.is_brt_2640 THEN FLOOR((pd.area_sqft / 43560.0) * 80) ELSE 0 END as cap_true_sb79,
-                CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) WHEN pd.is_train_2640 THEN FLOOR((pd.area_sqft / 43560.0) * 100) ELSE 0 END as cap_train_only,
-                CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_2640 AND pd.is_hf_1320 THEN CASE WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) ELSE FLOOR((pd.area_sqft / 43560.0) * 100) END ELSE 0 END as cap_train_and_hf_bus,
-                CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_2640 AND (pd.is_hf_1320 OR pd.all_bus_count >= 2) THEN CASE WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) ELSE FLOOR((pd.area_sqft / 43560.0) * 100) END ELSE 0 END as cap_train_and_bus_combo
+        CREATE OR REPLACE TEMPORARY TABLE step5_pro_forma_base AS
+        SELECT pd.geom_3435 as center_geom, pd.neighborhood_name, pd.area_sqft, pd.zone_class, 1 as parcels_combined, 
+            COALESCE(pd.existing_units, 0.0) as existing_units, 
+            COALESCE(pd.primary_prop_class, 'UNKNOWN') as primary_prop_class, 
+            COALESCE(pd.tot_bldg_value, 0.0) as tot_bldg_value, 
+            COALESCE(pd.tot_land_value, 0.0) as tot_land_value, 
+            COALESCE(pd.building_age, 0) as building_age, 
+            COALESCE(pd.existing_sqft, 0.0) as existing_sqft, 
+            pd.prop_address,
             
-            FROM step3_distances pd
-            LEFT JOIN neighborhood_rents r ON pd.neighborhood_name = r.neighborhood_name
-            LEFT JOIN step4_sales_ratio nsr ON pd.neighborhood_name = nsr.neighborhood_name
-        )
-        SELECT center_geom, area_sqft, parcels_combined, zone_class, neighborhood_name, prop_address,
-            local_rent, value_per_new_unit, acquisition_cost, tot_existing_units as existing_units, building_age, existing_sqft,
-            current_capacity, primary_prop_class, tot_bldg_value, tot_land_value,
-            cost_per_unit_low_density, cost_per_unit_high_density, target_profit_margin, market_correction_multiplier,
+            COALESCE(r.monthly_rent, {DEFAULT_NEW_BUILD_RENT}) as local_rent,
+            ((COALESCE(r.monthly_rent, {DEFAULT_NEW_BUILD_RENT}) * 12.0) / 0.055) as value_per_new_unit,
             
-            CASE WHEN 
-                current_capacity >= (GREATEST(tot_existing_units, 1.0) * 2.0) AND           
-                (current_capacity * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND  
-                (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND                    
-                tot_existing_units < 40 AND                                                 
-                (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) AND                           
-                zone_class NOT IN ('OS', 'POS', 'PMD') AND                              
-                primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND                                
-                primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND                                   
-                (current_capacity * value_per_new_unit) > (acquisition_cost + (current_capacity * cost_per_unit_low_density)) * target_profit_margin
-            THEN GREATEST(0, current_capacity - tot_existing_units) ELSE 0 END as feasible_existing,
-
-            CASE WHEN 
-                pritzker_capacity >= (GREATEST(tot_existing_units, 1.0) * 2.0) AND 
-                (pritzker_capacity * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND 
-                (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND tot_existing_units < 40 AND (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
-                (pritzker_capacity * value_per_new_unit) > (acquisition_cost + (pritzker_capacity * cost_per_unit_low_density)) * target_profit_margin
-            THEN GREATEST(0, pritzker_capacity - current_capacity) ELSE 0 END as new_pritzker,
+            COALESCE(nsr.market_correction_multiplier, {DEFAULT_SALES_MULTIPLIER}) as market_correction_multiplier,
+            GREATEST((COALESCE(pd.tot_bldg_value, 0.0) + COALESCE(pd.tot_land_value, 0.0)) * COALESCE(nsr.market_correction_multiplier, {DEFAULT_SALES_MULTIPLIER}), 10000.0) as acquisition_cost,
             
-            CASE WHEN 
-                cap_true_sb79 >= (GREATEST(tot_existing_units, 1.0) * 2.0) AND 
-                (cap_true_sb79 * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND 
-                (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND tot_existing_units < 40 AND (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
-                (cap_true_sb79 * value_per_new_unit) > (acquisition_cost + (cap_true_sb79 * cost_per_unit_high_density)) * target_profit_margin
-            THEN GREATEST(0, cap_true_sb79 - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_true_sb79,
+            CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
+                 THEN 300000.0 ELSE 240000.0 END as cost_per_unit_low_density,
             
-            CASE WHEN 
-                cap_true_sb79 >= (GREATEST(tot_existing_units, 1.0) * 2.0) AND 
-                (cap_true_sb79 * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND 
-                (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND tot_existing_units < 40 AND (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
-                (cap_true_sb79 * value_per_new_unit) > (acquisition_cost + (cap_true_sb79 * cost_per_unit_high_density)) * target_profit_margin
-            THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_true_sb79) - current_capacity) ELSE 0 END as tot_true_sb79,
+            CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
+                 THEN 420000.0 ELSE 336000.0 END as cost_per_unit_high_density,
             
-            CASE WHEN cap_train_only >= (GREATEST(tot_existing_units, 1.0) * 2.0) AND (cap_train_only * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND tot_existing_units < 40 AND (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
-            (cap_train_only * value_per_new_unit) > (acquisition_cost + (cap_train_only * cost_per_unit_high_density)) * target_profit_margin
-            THEN GREATEST(0, cap_train_only - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_train_only,
+            1.15 as target_profit_margin,
             
-            CASE WHEN cap_train_only >= (GREATEST(tot_existing_units, 1.0) * 2.0) AND (cap_train_only * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND tot_existing_units < 40 AND (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
-            (cap_train_only * value_per_new_unit) > (acquisition_cost + (cap_train_only * cost_per_unit_high_density)) * target_profit_margin
-            THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_only) - current_capacity) ELSE 0 END as tot_train_only,
-            
-            CASE WHEN cap_train_and_hf_bus >= (GREATEST(tot_existing_units, 1.0) * 2.0) AND (cap_train_and_hf_bus * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND tot_existing_units < 40 AND (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
-            (cap_train_and_hf_bus * value_per_new_unit) > (acquisition_cost + (cap_train_and_hf_bus * cost_per_unit_high_density)) * target_profit_margin
-            THEN GREATEST(0, cap_train_and_hf_bus - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_train_and_hf_bus,
-            
-            CASE WHEN cap_train_and_hf_bus >= (GREATEST(tot_existing_units, 1.0) * 2.0) AND (cap_train_and_hf_bus * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND tot_existing_units < 40 AND (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
-            (cap_train_and_hf_bus * value_per_new_unit) > (acquisition_cost + (cap_train_and_hf_bus * cost_per_unit_high_density)) * target_profit_margin
-            THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_hf_bus) - current_capacity) ELSE 0 END as tot_train_and_hf_bus,
-            
-            CASE WHEN cap_train_and_bus_combo >= (GREATEST(tot_existing_units, 1.0) * 2.0) AND (cap_train_and_bus_combo * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND tot_existing_units < 40 AND (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
-            (cap_train_and_bus_combo * value_per_new_unit) > (acquisition_cost + (cap_train_and_bus_combo * cost_per_unit_high_density)) * target_profit_margin
-            THEN GREATEST(0, cap_train_and_bus_combo - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_train_and_bus_combo,
-            
-            CASE WHEN cap_train_and_bus_combo >= (GREATEST(tot_existing_units, 1.0) * 2.0) AND (cap_train_and_bus_combo * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND (existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND tot_existing_units < 40 AND (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 100000)) AND zone_class NOT IN ('OS', 'POS', 'PMD') AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX' AND
-            (cap_train_and_bus_combo * value_per_new_unit) > (acquisition_cost + (cap_train_and_bus_combo * cost_per_unit_high_density)) * target_profit_margin
-            THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_bus_combo) - current_capacity) ELSE 0 END as tot_train_and_bus_combo,
-
-            parcels_combined, area_sqft,
-            
-            -- FIX: Multi-Family strictly defined as RM and RT zones (restoring the 80/30 split)
-            CASE WHEN zone_class LIKE 'RM-%' OR zone_class LIKE 'RT-%' THEN parcels_combined ELSE 0 END as parcels_mf_zoned,
-            CASE WHEN zone_class LIKE 'RM-%' OR zone_class LIKE 'RT-%' THEN area_sqft ELSE 0 END as area_mf_zoned
-            
-        FROM pro_forma_parcels
+            -- FIXED: Added LEAST(150, ...) to prevent mega-lots from generating 1,000s of fake units
+            LEAST(150, GREATEST(1, CASE WHEN pd.zone_class LIKE 'RS-1%' OR pd.zone_class LIKE 'RS-2%' THEN FLOOR(pd.area_sqft / 5000) WHEN pd.zone_class LIKE 'RS-3%' THEN FLOOR(pd.area_sqft / 2500) WHEN pd.zone_class LIKE 'RT-3.5%' THEN FLOOR(pd.area_sqft / 1250) WHEN pd.zone_class LIKE 'RT-4%' THEN FLOOR(pd.area_sqft / 1000) WHEN pd.zone_class LIKE 'RM-4.5%' OR pd.zone_class LIKE 'RM-5%' THEN FLOOR(pd.area_sqft / 400) WHEN pd.zone_class LIKE 'RM-6%' OR pd.zone_class LIKE 'RM-6.5%' THEN FLOOR(pd.area_sqft / 200) WHEN pd.zone_class LIKE '%-1' THEN FLOOR(pd.area_sqft / 1000) WHEN pd.zone_class LIKE '%-2' OR pd.zone_class LIKE '%-3' THEN FLOOR(pd.area_sqft / 400) WHEN pd.zone_class LIKE '%-5' OR pd.zone_class LIKE '%-6' THEN FLOOR(pd.area_sqft / 200) ELSE FLOOR(pd.area_sqft / 1000) END)) as current_capacity,
+            LEAST(150, CASE WHEN pd.zone_class IN ('RS-1', 'RS-2', 'RS-3') THEN CASE WHEN pd.area_sqft < 2500 THEN 1 WHEN pd.area_sqft < 5000 THEN 4 WHEN pd.area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END) as pritzker_capacity,
+            LEAST(150, CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) WHEN pd.is_train_2640 OR pd.is_brt_1320 OR pd.hf_bus_count >= 2 THEN FLOOR((pd.area_sqft / 43560.0) * 100) WHEN pd.is_brt_2640 THEN FLOOR((pd.area_sqft / 43560.0) * 80) ELSE 0 END) as cap_true_sb79,
+            LEAST(150, CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) WHEN pd.is_train_2640 THEN FLOOR((pd.area_sqft / 43560.0) * 100) ELSE 0 END) as cap_train_only,
+            LEAST(150, CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_2640 AND pd.is_hf_1320 THEN CASE WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) ELSE FLOOR((pd.area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_train_and_hf_bus,
+            LEAST(150, CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_2640 AND (pd.is_hf_1320 OR pd.all_bus_count >= 2) THEN CASE WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) ELSE FLOOR((pd.area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_train_and_bus_combo
+        
+        FROM step3_distances pd
+        LEFT JOIN neighborhood_rents r ON pd.neighborhood_name = r.neighborhood_name
+        LEFT JOIN step4_sales_ratio nsr 
+            ON pd.neighborhood_name = nsr.neighborhood_name 
+            AND nsr.value_bucket = CASE 
+                WHEN (pd.tot_bldg_value + pd.tot_land_value) < 250000 THEN 'T1_UNDER_250K'
+                WHEN (pd.tot_bldg_value + pd.tot_land_value) < 500000 THEN 'T2_250K_500K'
+                WHEN (pd.tot_bldg_value + pd.tot_land_value) < 1000000 THEN 'T3_500K_1M'
+                ELSE 'T4_OVER_1M' 
+            END
     """)
+
+    financial_ctes = get_financial_filter_ctes(source_table_name="step5_pro_forma_base")
+    con.execute(f"CREATE OR REPLACE TEMPORARY TABLE step5_pro_forma AS WITH {financial_ctes} SELECT * FROM filtered_parcels")
     print(f" ✅ ({time.time() - t0:.1f}s)")
