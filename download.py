@@ -12,7 +12,10 @@ DATASETS = {
     'assessor_universe.csv': 'https://datacatalog.cookcountyil.gov/api/views/pabr-t5kh/rows.csv?accessType=DOWNLOAD',
     'assessed_values_2023.csv': 'https://datacatalog.cookcountyil.gov/resource/uzyt-m557.csv?$where=year=2023&$limit=2000000',
     'res_characteristics.csv': 'https://datacatalog.cookcountyil.gov/resource/x54s-btds.csv?$where=year=2023&$limit=2000000',
-    'parcel_addresses.csv': 'https://datacatalog.cookcountyil.gov/resource/3723-97qp.csv?$where=year=2023&$limit=2000000'
+    'parcel_addresses.csv': 'https://datacatalog.cookcountyil.gov/resource/3723-97qp.csv?$where=year=2023&$limit=2000000',
+
+    # NEW: All Cook County Property Sales since 2023
+    'parcel_sales.csv': 'https://datacatalog.cookcountyil.gov/resource/wvhk-k5uv.csv?$where=year>=2023&$limit=500000'
 }
 
 def download_file(filename, url):
@@ -46,7 +49,8 @@ def setup_database():
         'assessor_universe.csv': 'assessor_universe',
         'assessed_values_2023.csv': 'assessed_values',
         'res_characteristics.csv': 'res_characteristics',
-        'parcel_addresses.csv': 'parcel_addresses'
+        'parcel_addresses.csv': 'parcel_addresses',
+        'parcel_sales.csv': 'parcel_sales' # <--- Added Sales Data
     }
 
     for filename, table_name in table_map.items():
