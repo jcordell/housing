@@ -9,8 +9,10 @@ DATASETS = {
     'neighborhoods.geojson': 'https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON',
     'cta_stations.geojson': 'https://data.cityofchicago.org/api/geospatial/8pix-ypme?method=export&format=GeoJSON',
     'cta_bus_routes.geojson': 'https://data.cityofchicago.org/api/geospatial/6uva-a5ei?method=export&format=GeoJSON',
-    # NEW: Zillow Observed Rent Index (ZORI) by Neighborhood
-    'zillow_rent.csv': 'https://files.zillowstatic.com/research/public_csvs/zori/Neighborhood_zori_uc_sfrcondomfr_sm_month.csv'
+    'zillow_rent.csv': 'https://files.zillowstatic.com/research/public_csvs/zori/Neighborhood_zori_uc_sfrcondomfr_sm_month.csv',
+
+    # NEW: Fast, single-year Cook County Parcel snapshot
+    'cook_parcel_universe.csv': 'https://datacatalog.cookcountyil.gov/api/views/pabr-t5kh/rows.csv?accessType=DOWNLOAD'
 }
 
 def download_file(filename, url):
@@ -35,7 +37,6 @@ def setup_database():
     con = duckdb.connect(DB_FILE)
     con.execute("INSTALL spatial; LOAD spatial;")
 
-    # We skip zillow_rent.csv here because we will analyze it dynamically in Pandas
     table_map = {
         'chicago_zoning.geojson': 'zoning',
         'cook_parcels.geojson': 'parcels',
@@ -61,4 +62,4 @@ if __name__ == "__main__":
     for filename, url in DATASETS.items():
         download_file(filename, url)
     setup_database()
-    print("\n🚀 Ready! Now run: python3 generate-all-maps.py")
+    print("\n🚀 Ready! Now run: python3 generate-indexhtml.py")

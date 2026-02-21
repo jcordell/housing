@@ -20,7 +20,7 @@ def analyze_and_map():
     con.execute("INSTALL spatial; LOAD spatial;")
 
     if recalculate:
-        print("Running 5-Scenario Spatial Analysis with Parcel Assembly (Caching results)...")
+        print("Running 5-Scenario Spatial Analysis with UCLA Feasibility Filters (Caching results)...")
         con.execute("""
             CREATE OR REPLACE TEMPORARY TABLE parcel_base AS
             WITH
@@ -56,11 +56,23 @@ def analyze_and_map():
                 FROM parcel_distances
             )
             SELECT center_geom, area_sqft, parcels_combined, zone_class,
-                GREATEST(0, pritzker_capacity - current_capacity) as new_pritzker,
-                GREATEST(0, cap_true_sb79 - GREATEST(current_capacity, pritzker_capacity)) as add_true_sb79, GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_true_sb79) - current_capacity) as tot_true_sb79,
-                GREATEST(0, cap_train_only - GREATEST(current_capacity, pritzker_capacity)) as add_train_only, GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_only) - current_capacity) as tot_train_only,
-                GREATEST(0, cap_train_and_hf_bus - GREATEST(current_capacity, pritzker_capacity)) as add_train_and_hf_bus, GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_hf_bus) - current_capacity) as tot_train_and_hf_bus,
-                GREATEST(0, cap_train_and_bus_combo - GREATEST(current_capacity, pritzker_capacity)) as add_train_and_bus_combo, GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_bus_combo) - current_capacity) as tot_train_and_bus_combo
+
+                -- UCLA REDEVELOPMENT LIKELIHOOD FILTER:
+                -- Net units are only counted if the new zoning yields a realistic feasibility multiplier.
+                -- Missing Middle needs at least a 2x yield. Mid-rises need at least a 3x yield over existing baseline.
+                CASE WHEN pritzker_capacity >= (current_capacity * 2) THEN GREATEST(0, pritzker_capacity - current_capacity) ELSE 0 END as new_pritzker,
+                CASE WHEN cap_true_sb79 >= (current_capacity * 3) THEN GREATEST(0, cap_true_sb79 - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_true_sb79,
+                CASE WHEN cap_true_sb79 >= (current_capacity * 3) THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_true_sb79) - current_capacity) ELSE 0 END as tot_true_sb79,
+
+                CASE WHEN cap_train_only >= (current_capacity * 3) THEN GREATEST(0, cap_train_only - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_train_only,
+                CASE WHEN cap_train_only >= (current_capacity * 3) THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_only) - current_capacity) ELSE 0 END as tot_train_only,
+
+                CASE WHEN cap_train_and_hf_bus >= (current_capacity * 3) THEN GREATEST(0, cap_train_and_hf_bus - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_train_and_hf_bus,
+                CASE WHEN cap_train_and_hf_bus >= (current_capacity * 3) THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_hf_bus) - current_capacity) ELSE 0 END as tot_train_and_hf_bus,
+
+                CASE WHEN cap_train_and_bus_combo >= (current_capacity * 3) THEN GREATEST(0, cap_train_and_bus_combo - GREATEST(current_capacity, pritzker_capacity)) ELSE 0 END as add_train_and_bus_combo,
+                CASE WHEN cap_train_and_bus_combo >= (current_capacity * 3) THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_bus_combo) - current_capacity) ELSE 0 END as tot_train_and_bus_combo
+
             FROM parcel_calculations;
         """)
 
@@ -89,7 +101,7 @@ def analyze_and_map():
         try:
             df_neighborhoods = con.execute("SELECT * FROM neighborhood_results ORDER BY tot_train_and_bus_combo DESC").df()
         except Exception:
-            print("❌ ERROR: Cached table not found or schema outdated. Please run: RECALCULATE=true python3 generate-all-maps.py")
+            print("❌ ERROR: Cached table not found or schema outdated. Please run: RECALCULATE=true python3 generate-indexhtml.py")
             con.close()
             return
 
@@ -163,7 +175,7 @@ def analyze_and_map():
     # TERMINAL OUTPUT
     # ---------------------------------------------------------
     print("\n" + "="*80)
-    print("HOUSING POLICY IMPACT ANALYSIS: SB 79 BUS VS TRAIN MODELING")
+    print("HOUSING POLICY IMPACT ANALYSIS: (Filtered for Redevelopment Feasibility)")
     print("="*80)
     print(f"1. Original Pritzker Upzoning (Net New):         {df_neighborhoods['new_pritzker'].sum():,.0f}")
     print("-" * 80)
@@ -203,10 +215,10 @@ def analyze_and_map():
         'pct_sb79': f"{pct_sb79:.1f}",
         'train_only_total': f"{df_neighborhoods['tot_train_only'].sum():,.0f}",
         'train_only_diff': f"+{df_neighborhoods['add_train_only'].sum():,.0f}",
-        'train_hf_total': f"{df_neighborhoods['tot_train_and_hf_bus'].sum():,.0f}",
-        'train_hf_diff': f"+{df_neighborhoods['add_train_and_hf_bus'].sum():,.0f}",
         'train_combo_total': f"{df_neighborhoods['tot_train_and_bus_combo'].sum():,.0f}",
         'train_combo_diff': f"+{df_neighborhoods['add_train_and_bus_combo'].sum():,.0f}",
+        'train_hf_total': f"{df_neighborhoods['tot_train_and_hf_bus'].sum():,.0f}",
+        'train_hf_diff': f"+{df_neighborhoods['add_train_and_hf_bus'].sum():,.0f}",
         'exp_sb79_diff': f"{exp_sb79_diff:,.0f}",
         'affordable_units': f"{exp_sb79_diff * 0.20:,.0f}",
         'top5_pct_sqft': f"{top5_pct_sqft:.1f}",
@@ -238,12 +250,12 @@ Why? Because the most desirable, walkable neighborhoods in Chicago are desirable
 
 * Across the **rest of Chicago**, that number drops to just **{{ rest_pct_sqft }}%**.
 
-Because land acquisition costs in these highly restricted neighborhoods are high, developers cannot afford to tear down a $1.5M single-family home just to build a 3-flat. To unlock housing in high-opportunity, transit rich areas, we must allow mid-rise density.
+Because land acquisition costs in these highly restricted neighborhoods are high, developers cannot afford to tear down a $1.5M single-family home just to build a 3-flat. To unlock housing in high-opportunity, transit-rich areas, we must allow mid-rise density.
 
 In the Top 5 most expensive neighborhoods, the base BUILD Act only upzones a potential **{{ top5_pritzker }}** new units. Layering the CA SB79 transit density standard generates **{{ top5_sb79_full }}** units in those same neighborhoods.
 
 ## The Solution: A California-Style SB 79 Amendment
-By adopting a transit-oriented density model similar to [California's SB 79](https://leginfo.legislature.ca.gov/), we can shift where housing gets built.
+By adopting a transit-oriented density model similar to [California's SB 79](https://leginfo.legislature.ca.gov/faces/billNavClient.xhtml?bill_id=202320240SB79), we can shift where housing gets built.
 
 SB 79 effectively legalizes **5 to 10-story mid-rise apartment buildings**, similar to the many courtyard buildings already built everywhere in Chicago, by guaranteeing baseline densities of 100 to 120 units per acre near high-frequency transit hubs. It overrides local exclusionary zoning and limits restrictive parking minimums, allowing dense, walkable communities in areas where the land values are highest.
 
@@ -256,6 +268,7 @@ If Illinois adopts a True CA SB 79 model allowing building near trains and bus i
 * The share of new housing built in Chicago's 15 most expensive, highest-rent-growth neighborhoods nearly doubles to **{{ pct_sb79 }}%**.
 
 ## Economic & Fiscal Impact: The Property Tax Yield
+
 Upzoning is also a fiscal boon. When we measure property tax yield per acre in Chicago's top 5 highest-rent neighborhoods, there is an obvious financial incentive for Transit-Oriented Development:
 
 * **Single-Family Home Zone:** **{{ sfh_yield }}** in property tax revenue per acre.
@@ -269,6 +282,8 @@ Chicago's Affordable Requirements Ordinance (ARO) requires upzoned properties to
 
 ## Transit Proximity Policy Options
 We analyzed four different legislative requirements for triggering transit-based upzoning. We compared the base SB79 text (upzoning units near Trains OR Bus Intersections) to alternatives requiring varying levels of access to transportation.
+
+*(Note: Data filtered for feasibility. Parcels are only counted if the upzoning allows at least a 3x yield over existing capacity).*
 
 We calculated the following housing capacity increases for each proposal:
 
@@ -336,9 +351,9 @@ We calculated the following housing capacity increases for each proposal:
         folium.GeoJsonTooltip(fields=tooltip_fields, aliases=tooltip_aliases, style="background-color: black; color: white;").add_to(choro.geojson)
         choro.add_to(m)
 
-    # Note: Layers 4 and 5 are swapped here to match the markdown table logical escalation
+    # Note: Layers matched exactly to the Markdown table's new escalation order
     add_layer("1. Pritzker Upzoning", 'new_pritzker', ['community', 'm1_val'], ['Neighborhood:', 'Pritzker Units:'], False)
-    add_layer("2. CA SB 79 (Train OR 2 HF Bus)", 'tot_true_sb79', ['community', 'm2_val', 'm2_diff'], ['Neighborhood:', 'Total SB 79 Units:', 'Difference vs Pritzker:'], True)
+    add_layer("2. TRUE CA SB 79 (Train+BRT)", 'tot_true_sb79', ['community', 'm2_val', 'm2_diff'], ['Neighborhood:', 'Total SB 79 Units:', 'Difference vs Pritzker:'], True)
     add_layer("3. SB 79 Train Only", 'tot_train_only', ['community', 'm3_val', 'm3_diff'], ['Neighborhood:', 'Total Units:', 'Difference vs Pritzker:'], False)
     add_layer("4. SB 79 Train + Bus Options", 'tot_train_and_bus_combo', ['community', 'm4_val', 'm4_diff'], ['Neighborhood:', 'Total Units:', 'Difference vs Pritzker:'], False)
     add_layer("5. SB 79 Train + HF Bus", 'tot_train_and_hf_bus', ['community', 'm5_val', 'm5_diff'], ['Neighborhood:', 'Total Units:', 'Difference vs Pritzker:'], False)
@@ -412,7 +427,7 @@ We calculated the following housing capacity increases for each proposal:
 
     article_html = markdown.markdown(populated_md, extensions=['tables'])
 
-    # Make the table fully responsive by wrapping it in an overflow container dynamically
+    # Make the table fully responsive
     article_html = article_html.replace('<table>', '<div class="overflow-x-auto w-full"><table>').replace('</table>', '</table></div>')
 
     final_html = f"""
