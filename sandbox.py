@@ -21,19 +21,18 @@ def run_sandbox():
     print(f"\n✅ Total Sandbox Runtime: {time.time() - global_start:.2f} seconds\n")
     print(df_agg.to_string(index=False))
 
-    # --- 🔍 NEW: DIAGNOSTIC FAILURE ANALYSIS ---
     print("\n🔍 DIAGNOSTICS: Why are properties failing? ====================================")
 
     def get_failure_reason(row):
         if row['feasible_existing'] > 0: return '✅ Pass (Feasible)'
-        if not row['pass_zoning_class']: return '❌ Failed: Invalid Zoning (OS/POS/PMD)'
-        if not row['pass_prop_class']: return '❌ Failed: Invalid Prop Class (Condo/Exempt)'
-        if not row['pass_age_value']: return '❌ Failed: Building Too New or Valuable'
-        if not row['pass_max_units']: return '❌ Failed: Too Many Existing Units (>40)'
-        if not row['pass_unit_mult']: return '❌ Failed: 2x Unit Multiplier Check'
-        if not row['pass_lot_density']: return '❌ Failed: Existing Lot Already Too Dense'
-        if not row['pass_sqft_mult']: return '❌ Failed: 1.25x SqFt Check'
-        if not row['pass_financial_existing']: return '❌ Failed: Not Profitable (Pro Forma ROI)'
+        if row['pass_zoning_class'] != True: return '❌ Failed: Invalid Zoning (OS/POS/PMD)'
+        if row['pass_prop_class'] != True: return '❌ Failed: Invalid Prop Class (Condo/Exempt)'
+        if row['pass_age_value'] != True: return '❌ Failed: Building Too New or Valuable'
+        if row['pass_max_units'] != True: return '❌ Failed: Too Many Existing Units (>40)'
+        if row['pass_unit_mult'] != True: return '❌ Failed: 2x Unit Multiplier Check'
+        if row['pass_lot_density'] != True: return '❌ Failed: Existing Lot Already Too Dense'
+        if row['pass_sqft_mult'] != True: return '❌ Failed: 1.25x SqFt Check'
+        if row['pass_financial_existing'] != True: return '❌ Failed: Not Profitable (Pro Forma ROI)'
         return '❌ Failed: Other'
 
     df_raw['status'] = df_raw.apply(get_failure_reason, axis=1)
@@ -58,7 +57,7 @@ def run_sandbox():
             print(f"   🏠 EXISTING: {row['existing_units']} units | Age: {row['building_age']} yrs | Sqft: {row['existing_sqft']} | Class: {row['primary_prop_class']}")
             print(f"   📈 PROPOSED: {row['current_capacity']} units | Value/Unit: ${row['value_per_new_unit']:,.0f} (Rent: ${row['local_rent']:,.0f}/mo)")
 
-            cpu = row['cost_per_unit_low_density']
+            cpu = row['cost_per_unit_high_density'] if row['current_capacity'] > 6 else row['cost_per_unit_low_density']
             profit_margin = row['target_profit_margin']
             total_revenue = row['current_capacity'] * row['value_per_new_unit']
             total_cost = (row['acquisition_cost'] + (row['current_capacity'] * cpu)) * profit_margin
