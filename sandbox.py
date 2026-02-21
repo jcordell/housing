@@ -1,7 +1,15 @@
 import duckdb
 import pandas as pd
 import time
-from financial_model import get_financial_filter_ctes, CHICAGO_NEW_BUILD_RENTS, DEFAULT_NEW_BUILD_RENT, CHICAGO_SALES_MULTIPLIERS, DEFAULT_SALES_MULTIPLIER
+from financial_model import (
+    get_financial_filter_ctes,
+    CHICAGO_NEW_BUILD_RENTS,
+    DEFAULT_NEW_BUILD_RENT,
+    CHICAGO_SALES_MULTIPLIERS,
+    DEFAULT_SALES_MULTIPLIER,
+    CHICAGO_CONSTRUCTION_COSTS,
+    DEFAULT_CONSTRUCTION_COST
+)
 
 DB_FILE = "sb79_housing.duckdb"
 
@@ -175,7 +183,6 @@ def run_sandbox():
             )
             SELECT n.neighborhood_name, 
                    ab.value_bucket,
-                   -- If a specific bucket has no sales data, fall back to the neighborhood average
                    COALESCE(b.bucket_multiplier, n.neighborhood_multiplier) as market_correction_multiplier
             FROM neighborhood_medians n
             CROSS JOIN all_buckets ab
@@ -193,6 +200,48 @@ def run_sandbox():
         """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
+    # --- STEP 4.5: DYNAMIC CONSTRUCTION COSTS FROM PERMITS ---
+    t0 = time.time()
+    try:
+        con.execute("SELECT 1 FROM building_permits LIMIT 1")
+        has_permit_data = True
+    except duckdb.duckdb.CatalogException:
+        has_permit_data = False
+
+    if has_permit_data:
+        print("⏳ [4.5/5] Extracting Real Construction Costs via Regex...", end="", flush=True)
+        con.execute("""
+            CREATE OR REPLACE TEMPORARY TABLE step4b_construction_costs AS
+            WITH valid_permits AS (
+                SELECT 
+                    TRY_CAST(reported_cost AS DOUBLE) as raw_cost,
+                    -- Regex: Look for a number followed by space and 'UNIT', 'DU', or 'D.U.'
+                    TRY_CAST(REGEXP_EXTRACT(UPPER(work_description), '([0-9]+)\s*(UNIT|D\.U\.|DU|APARTMENT)', 1) AS DOUBLE) as stated_units,
+                    ST_Point(TRY_CAST(longitude AS DOUBLE), TRY_CAST(latitude AS DOUBLE)) as geom
+                FROM building_permits
+                WHERE reported_cost IS NOT NULL AND longitude IS NOT NULL AND latitude IS NOT NULL
+            ),
+            permit_costs AS (
+                SELECT 
+                    UPPER(n.community) as neighborhood_name,
+                    -- Apply 1.3x multiplier because permit 'reported_cost' omits soft costs
+                    (p.raw_cost / p.stated_units) * 1.3 as true_cost_per_unit
+                FROM valid_permits p
+                JOIN ST_Read('neighborhoods.geojson') n ON ST_Intersects(ST_Transform(p.geom, 'EPSG:4326', 'EPSG:3435', true), ST_Transform(n.geom, 'EPSG:4326', 'EPSG:3435', true))
+                WHERE p.stated_units >= 2 AND (p.raw_cost / p.stated_units) BETWEEN 100000 AND 600000
+            )
+            SELECT neighborhood_name,
+                   MEDIAN(true_cost_per_unit) as dynamic_cost_per_unit
+            FROM permit_costs
+            GROUP BY neighborhood_name;
+        """)
+    else:
+        print("⏳ [4.5/5] API down. Falling back to hardcoded Construction Costs...", end="", flush=True)
+        df_costs = pd.DataFrame(list(CHICAGO_CONSTRUCTION_COSTS.items()), columns=['neighborhood_name', 'dynamic_cost_per_unit'])
+        con.register('fallback_costs_df', df_costs)
+        con.execute("CREATE OR REPLACE TEMPORARY TABLE step4b_construction_costs AS SELECT * FROM fallback_costs_df")
+    print(f" ✅ ({time.time() - t0:.1f}s)")
+
     # --- STEP 5: FINANCIALS ---
     t0 = time.time()
     print("⏳ [5/5] Executing Real Estate Pro Forma equations...", end="", flush=True)
@@ -203,6 +252,10 @@ def run_sandbox():
             SELECT pd.geom_3435 as center_geom, pd.neighborhood_name, pd.area_sqft, pd.zone_class, 1 as parcels_combined, pd.existing_units as tot_existing_units, pd.primary_prop_class, pd.tot_bldg_value, pd.tot_land_value, pd.building_age, pd.existing_sqft, pd.prop_address,
                 COALESCE(r.monthly_rent, {DEFAULT_NEW_BUILD_RENT}) as local_rent,
                 COALESCE(nsr.market_correction_multiplier, {DEFAULT_SALES_MULTIPLIER}) as market_correction_multiplier,
+                
+                -- Dynamic Construction Cost Injection
+                COALESCE(cc.dynamic_cost_per_unit, {DEFAULT_CONSTRUCTION_COST}) as dynamic_cost_per_unit,
+                
                 GREATEST(1, CASE WHEN pd.zone_class LIKE 'RS-1%' OR pd.zone_class LIKE 'RS-2%' THEN FLOOR(pd.area_sqft / 5000) WHEN pd.zone_class LIKE 'RS-3%' THEN FLOOR(pd.area_sqft / 2500) WHEN pd.zone_class LIKE 'RT-3.5%' THEN FLOOR(pd.area_sqft / 1250) WHEN pd.zone_class LIKE 'RT-4%' THEN FLOOR(pd.area_sqft / 1000) WHEN pd.zone_class LIKE 'RM-4.5%' OR pd.zone_class LIKE 'RM-5%' THEN FLOOR(pd.area_sqft / 400) WHEN pd.zone_class LIKE 'RM-6%' OR pd.zone_class LIKE 'RM-6.5%' THEN FLOOR(pd.area_sqft / 200) WHEN pd.zone_class LIKE '%-1' THEN FLOOR(pd.area_sqft / 1000) WHEN pd.zone_class LIKE '%-2' OR pd.zone_class LIKE '%-3' THEN FLOOR(pd.area_sqft / 400) WHEN pd.zone_class LIKE '%-5' OR pd.zone_class LIKE '%-6' THEN FLOOR(pd.area_sqft / 200) ELSE FLOOR(pd.area_sqft / 1000) END) as current_capacity,
                 CASE WHEN pd.zone_class IN ('RS-1', 'RS-2', 'RS-3') THEN CASE WHEN pd.area_sqft < 2500 THEN 1 WHEN pd.area_sqft < 5000 THEN 4 WHEN pd.area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END as pritzker_capacity,
                 CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) WHEN pd.is_train_2640 OR pd.is_brt_1320 OR pd.hf_bus_count >= 2 THEN FLOOR((pd.area_sqft / 43560.0) * 100) WHEN pd.is_brt_2640 THEN FLOOR((pd.area_sqft / 43560.0) * 80) ELSE 0 END as cap_true_sb79,
@@ -211,8 +264,7 @@ def run_sandbox():
                 CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_2640 AND (pd.is_hf_1320 OR pd.all_bus_count >= 2) THEN CASE WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) ELSE FLOOR((pd.area_sqft / 43560.0) * 100) END ELSE 0 END as cap_train_and_bus_combo
             FROM step3_distances pd
             LEFT JOIN neighborhood_rents r ON pd.neighborhood_name = r.neighborhood_name
-            
-            -- STRATIFIED JOIN: Join on neighborhood AND value bucket
+            LEFT JOIN step4b_construction_costs cc ON pd.neighborhood_name = cc.neighborhood_name
             LEFT JOIN step4_sales_ratio nsr 
                 ON pd.neighborhood_name = nsr.neighborhood_name 
                 AND nsr.value_bucket = CASE 
@@ -253,6 +305,7 @@ def run_sandbox():
             total_cost = (row['acquisition_cost'] + (row['current_capacity'] * cpu)) * profit_margin
 
             print(f"   📊 MARKET MULTIPLIER: {row['market_correction_multiplier']:.2f}x (Applied to Tax Assessed Value of ${assessed_val:,.0f})")
+            print(f"   🏗️  EST. COST PER UNIT: ${cpu:,.0f} (Derived from neighborhood building permits)")
             print(f"   💰 MATH: Acq Cost: ${row['acquisition_cost']:,.0f} + Construction: ${(row['current_capacity']*cpu):,.0f} = Total Cost: ${total_cost:,.0f} (inc. profit)")
             print(f"            Expected Revenue: ${total_revenue:,.0f}")
             print("-" * 80)

@@ -13,9 +13,10 @@ DATASETS = {
     'assessed_values_2023.csv': 'https://datacatalog.cookcountyil.gov/resource/uzyt-m557.csv?$where=year=2023&$limit=2000000',
     'res_characteristics.csv': 'https://datacatalog.cookcountyil.gov/resource/x54s-btds.csv?$where=year=2023&$limit=2000000',
     'parcel_addresses.csv': 'https://datacatalog.cookcountyil.gov/resource/3723-97qp.csv?$where=year=2023&$limit=2000000',
+    'parcel_sales.csv': 'https://datacatalog.cookcountyil.gov/resource/wvhk-k5uv.csv?$where=year>=2023&$limit=500000',
 
-    # NEW: All Cook County Property Sales since 2023
-    'parcel_sales.csv': 'https://datacatalog.cookcountyil.gov/resource/wvhk-k5uv.csv?$where=year>=2023&$limit=500000'
+    # 🔥 NEW: All New Construction Permits since 2020
+    'building_permits.csv': "https://data.cityofchicago.org/resource/ydr8-5enu.csv?$where=permit_type='PERMIT - NEW CONSTRUCTION' AND issue_date>='2020-01-01'&$limit=50000"
 }
 
 def download_file(filename, url):
@@ -50,7 +51,8 @@ def setup_database():
         'assessed_values_2023.csv': 'assessed_values',
         'res_characteristics.csv': 'res_characteristics',
         'parcel_addresses.csv': 'parcel_addresses',
-        'parcel_sales.csv': 'parcel_sales' # <--- Added Sales Data
+        'parcel_sales.csv': 'parcel_sales',
+        'building_permits.csv': 'building_permits' # <--- Added Permits
     }
 
     for filename, table_name in table_map.items():

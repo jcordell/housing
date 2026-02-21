@@ -1,4 +1,4 @@
-# Hardcoded estimates for blended New Construction Rents
+# Rents
 CHICAGO_NEW_BUILD_RENTS = {
     'LINCOLN PARK': 2800.0, 'NEAR NORTH SIDE': 2900.0, 'LOOP': 2900.0, 'NEAR WEST SIDE': 2800.0,
     'LAKE VIEW': 2400.0, 'WEST TOWN': 2500.0, 'LOGAN SQUARE': 2300.0, 'NORTH CENTER': 2300.0,
@@ -8,18 +8,20 @@ CHICAGO_NEW_BUILD_RENTS = {
 }
 DEFAULT_NEW_BUILD_RENT = 1600.0
 
-# Fallback Market Correction Multipliers (Used if the County Sales API is down)
-# Represents how much higher actual sale prices are compared to Assessor Market Values
+# Sales Ratios
 CHICAGO_SALES_MULTIPLIERS = {
-    'LINCOLN PARK': 1.65,
-    'LAKE VIEW': 1.55,
-    'NEAR NORTH SIDE': 1.60,
-    'WEST TOWN': 1.55,
-    'LOGAN SQUARE': 1.50,
-    'AUSTIN': 1.25,
-    'ASHBURN': 1.20,
+    'LINCOLN PARK': 1.65, 'LAKE VIEW': 1.55, 'NEAR NORTH SIDE': 1.60,
+    'WEST TOWN': 1.55, 'LOGAN SQUARE': 1.50, 'AUSTIN': 1.25, 'ASHBURN': 1.20,
 }
 DEFAULT_SALES_MULTIPLIER = 1.40
+
+# 🔥 NEW: Fallback Construction Costs (Cost per Unit)
+CHICAGO_CONSTRUCTION_COSTS = {
+    'LINCOLN PARK': 350000.0, 'NEAR NORTH SIDE': 380000.0, 'LOOP': 400000.0,
+    'LAKE VIEW': 320000.0, 'WEST TOWN': 320000.0, 'LOGAN SQUARE': 300000.0,
+    'AUSTIN': 240000.0, 'ASHBURN': 240000.0, 'ENGLEWOOD': 230000.0
+}
+DEFAULT_CONSTRUCTION_COST = 275000.0
 
 def get_financial_filter_ctes(source_table_name):
     return f"""
@@ -33,16 +35,14 @@ def get_financial_filter_ctes(source_table_name):
                 local_rent,
                 ((local_rent * 12.0) / 0.055) as value_per_new_unit,
                 
-                -- DYNAMIC SALES RATIO MULTIPLIER (Based on actual neighborhood sales data)
                 market_correction_multiplier,
                 GREATEST((COALESCE(tot_bldg_value, 0.0) + COALESCE(tot_land_value, 0.0)) * market_correction_multiplier, 10000.0) as acquisition_cost,
                 
-                -- Dynamic Construction Costs (800 sq ft unit + 20% soft costs)
-                CASE WHEN neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
-                     THEN 300000.0 ELSE 240000.0 END as cost_per_unit_low_density,
+                -- Dynamic Construction Costs (Pulled from Building Permits)
+                COALESCE(dynamic_cost_per_unit, {DEFAULT_CONSTRUCTION_COST}) as cost_per_unit_low_density,
                 
-                CASE WHEN neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
-                     THEN 420000.0 ELSE 336000.0 END as cost_per_unit_high_density,
+                -- Mid-rise/high-density costs roughly 30% more per unit due to elevators/steel/union labor
+                COALESCE(dynamic_cost_per_unit * 1.30, {DEFAULT_CONSTRUCTION_COST} * 1.30) as cost_per_unit_high_density,
                 
                 1.15 as target_profit_margin,
                 
@@ -70,7 +70,6 @@ def get_financial_filter_ctes(source_table_name):
                 current_capacity, primary_prop_class, tot_bldg_value, tot_land_value,
                 cost_per_unit_low_density, cost_per_unit_high_density, target_profit_margin, market_correction_multiplier,
                 
-                -- 🚀 RELAXED STRUCTURAL HEURISTICS: Dropped 5x to 2.0x, allowing the Pro Forma to filter profitability
                 CASE WHEN 
                     current_capacity >= (GREATEST(existing_units, 1.0) * 2.0) AND           
                     (current_capacity * 800.0) >= (GREATEST(existing_sqft, 1.0) * 1.25) AND  
