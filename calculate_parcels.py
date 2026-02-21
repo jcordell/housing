@@ -14,7 +14,6 @@ def run_parcel_calculations(full_recalculate=True):
 
         run_spatial_pipeline(con, is_sandbox=False)
 
-        # Aggregate the final results and save them to the persistent table
         con.execute("""
             CREATE OR REPLACE TABLE neighborhood_results AS
             SELECT 

@@ -1,5 +1,6 @@
 import duckdb
 import time
+import pandas as pd
 from financial_model import run_spatial_pipeline
 
 DB_FILE = "sb79_housing.duckdb"
@@ -12,17 +13,14 @@ def run_sandbox():
 
     print("\n🚀 Running Rapid Sandbox Analysis (Lincoln Park, Lake View, Austin, Ashburn)...")
 
-    # Delegate all heavy lifting to the centralized financial model pipeline
     run_spatial_pipeline(con, is_sandbox=True)
 
-    # Print the aggregate results from the temporary table
     df_raw = con.execute("SELECT * FROM step5_pro_forma").df()
     df_agg = df_raw.groupby('neighborhood_name')[['feasible_existing', 'new_pritzker', 'add_true_sb79']].sum().reset_index()
 
     print(f"\n✅ Total Sandbox Runtime: {time.time() - global_start:.2f} seconds\n")
     print(df_agg.to_string(index=False))
 
-    # Print the detailed property debug logs
     print("\n🔍 DEBUG LOG: Sample of properties marked 'feasible_existing' ====================================\n")
     df_feasible = df_raw[df_raw['feasible_existing'] > 0]
 
@@ -44,7 +42,7 @@ def run_sandbox():
             total_cost = (row['acquisition_cost'] + (row['current_capacity'] * cpu)) * profit_margin
 
             print(f"   📊 MARKET MULTIPLIER: {row['market_correction_multiplier']:.2f}x (Applied to Tax Assessed Value of ${assessed_val:,.0f})")
-            print(f"   🏗️  EST. COST PER UNIT: ${cpu:,.0f} (Derived from neighborhood building permits)")
+            print(f"   🏗️  EST. COST PER UNIT: ${cpu:,.0f}")
             print(f"   💰 MATH: Acq Cost: ${row['acquisition_cost']:,.0f} + Construction: ${(row['current_capacity']*cpu):,.0f} = Total Cost: ${total_cost:,.0f} (inc. profit)")
             print(f"            Expected Revenue: ${total_revenue:,.0f}")
             print("-" * 80)

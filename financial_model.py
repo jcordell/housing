@@ -12,20 +12,12 @@ CHICAGO_NEW_BUILD_RENTS = {
 }
 DEFAULT_NEW_BUILD_RENT = 1600.0
 
-# Sales Ratios
+# Sales Ratios (Neighborhood Median Multipliers)
 CHICAGO_SALES_MULTIPLIERS = {
     'LINCOLN PARK': 1.65, 'LAKE VIEW': 1.55, 'NEAR NORTH SIDE': 1.60,
     'WEST TOWN': 1.55, 'LOGAN SQUARE': 1.50, 'AUSTIN': 1.25, 'ASHBURN': 1.20,
 }
 DEFAULT_SALES_MULTIPLIER = 1.40
-
-# Construction Costs
-CHICAGO_CONSTRUCTION_COSTS = {
-    'LINCOLN PARK': 350000.0, 'NEAR NORTH SIDE': 380000.0, 'LOOP': 400000.0,
-    'LAKE VIEW': 320000.0, 'WEST TOWN': 320000.0, 'LOGAN SQUARE': 300000.0,
-    'AUSTIN': 240000.0, 'ASHBURN': 240000.0, 'ENGLEWOOD': 230000.0
-}
-DEFAULT_CONSTRUCTION_COST = 275000.0
 
 def run_spatial_pipeline(con, is_sandbox=False):
     """
@@ -34,12 +26,11 @@ def run_spatial_pipeline(con, is_sandbox=False):
     If is_sandbox=False, it runs citywide.
     """
 
-    # Load Dictionaries into DuckDB
     df_rents = pd.DataFrame(list(CHICAGO_NEW_BUILD_RENTS.items()), columns=['neighborhood_name', 'monthly_rent'])
     con.register('neighborhood_rents_df', df_rents)
     con.execute("CREATE OR REPLACE TEMPORARY TABLE neighborhood_rents AS SELECT * FROM neighborhood_rents_df")
 
-    # STEP 1: PARCELS
+    # --- STEP 1: PARCELS & NEIGHBORHOODS ---
     t0 = time.time()
     if is_sandbox:
         print("⏳ [1/5] Isolating parcels for the 4 test neighborhoods...", end="", flush=True)
@@ -67,7 +58,7 @@ def run_spatial_pipeline(con, is_sandbox=False):
         """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
-    # STEP 2: ASSESSOR DATA
+    # --- STEP 2: ZONING & ASSESSOR JOIN ---
     t0 = time.time()
     print("⏳ [2/5] Joining Zoning and Cook County Assessor data...", end="", flush=True)
     con.execute("""
@@ -117,7 +108,7 @@ def run_spatial_pipeline(con, is_sandbox=False):
     """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
-    # STEP 3: TRANSIT DISTANCES
+    # --- STEP 3: SPATIAL TRANSIT ---
     t0 = time.time()
     print("⏳ [3/5] Calculating Transit Distances...", end="", flush=True)
     con.execute("""
@@ -157,7 +148,7 @@ def run_spatial_pipeline(con, is_sandbox=False):
     """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
-    # STEP 4: SALES RATIOS
+    # --- STEP 4: NEIGHBORHOOD MEDIAN SALES RATIO ---
     t0 = time.time()
     try:
         con.execute("SELECT 1 FROM parcel_sales LIMIT 1")
@@ -166,7 +157,7 @@ def run_spatial_pipeline(con, is_sandbox=False):
         has_sales_data = False
 
     if has_sales_data:
-        print("⏳ [4/5] Calculating Stratified Sales Ratios by Value Tier...", end="", flush=True)
+        print("⏳ [4/5] Calculating Dynamic Sales Ratios...", end="", flush=True)
         con.execute("""
             CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS
             WITH clean_sales AS (
@@ -177,41 +168,16 @@ def run_spatial_pipeline(con, is_sandbox=False):
             ),
             valid_ratios AS (
                 SELECT ep.neighborhood_name,
-                       CASE 
-                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 250000 THEN 'T1_UNDER_250K'
-                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 500000 THEN 'T2_250K_500K'
-                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 1000000 THEN 'T3_500K_1M'
-                           ELSE 'T4_OVER_1M' 
-                       END as value_bucket,
                        (s.sale_price / (ep.tot_bldg_value + ep.tot_land_value)) as ratio
                 FROM step3_distances ep
                 JOIN clean_sales s ON ep.pin10 = s.pin10
                 WHERE (ep.tot_bldg_value + ep.tot_land_value) > 20000
-            ),
-            bucket_medians AS (
-                SELECT neighborhood_name, value_bucket, MEDIAN(ratio) as bucket_multiplier
-                FROM valid_ratios
-                WHERE ratio BETWEEN 0.5 AND 3.5
-                GROUP BY neighborhood_name, value_bucket
-            ),
-            neighborhood_medians AS (
-                SELECT neighborhood_name, MEDIAN(ratio) as neighborhood_multiplier
-                FROM valid_ratios
-                WHERE ratio BETWEEN 0.5 AND 3.5
-                GROUP BY neighborhood_name
-            ),
-            all_buckets AS (
-                SELECT 'T1_UNDER_250K' as value_bucket UNION ALL
-                SELECT 'T2_250K_500K' UNION ALL
-                SELECT 'T3_500K_1M' UNION ALL
-                SELECT 'T4_OVER_1M'
             )
-            SELECT n.neighborhood_name, 
-                   ab.value_bucket,
-                   COALESCE(b.bucket_multiplier, n.neighborhood_multiplier) as market_correction_multiplier
-            FROM neighborhood_medians n
-            CROSS JOIN all_buckets ab
-            LEFT JOIN bucket_medians b ON n.neighborhood_name = b.neighborhood_name AND ab.value_bucket = b.value_bucket;
+            SELECT neighborhood_name,
+                   MEDIAN(ratio) as market_correction_multiplier
+            FROM valid_ratios
+            WHERE ratio BETWEEN 0.5 AND 3.5 
+            GROUP BY neighborhood_name;
         """)
     else:
         print("⏳ [4/5] API down. Falling back to hardcoded Market Correction Multipliers...", end="", flush=True)
@@ -219,56 +185,14 @@ def run_spatial_pipeline(con, is_sandbox=False):
         con.register('fallback_mults_df', df_mults)
         con.execute("""
             CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS 
-            SELECT neighborhood_name, value_bucket, fallback_mult as market_correction_multiplier 
+            SELECT neighborhood_name, fallback_mult as market_correction_multiplier 
             FROM fallback_mults_df
-            CROSS JOIN (SELECT 'T1_UNDER_250K' as value_bucket UNION SELECT 'T2_250K_500K' UNION SELECT 'T3_500K_1M' UNION SELECT 'T4_OVER_1M') buckets
         """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
-    # STEP 4.5: CONSTRUCTION COSTS
-    t0 = time.time()
-    try:
-        con.execute("SELECT 1 FROM building_permits LIMIT 1")
-        has_permit_data = True
-    except duckdb.duckdb.CatalogException:
-        has_permit_data = False
-
-    if has_permit_data:
-        print("⏳ [4.5/5] Extracting Real Construction Costs via Regex...", end="", flush=True)
-        con.execute("""
-            CREATE OR REPLACE TEMPORARY TABLE step4b_construction_costs AS
-            WITH valid_permits AS (
-                SELECT 
-                    TRY_CAST(reported_cost AS DOUBLE) as raw_cost,
-                    TRY_CAST(REGEXP_EXTRACT(UPPER(work_description), '([0-9]+)\s*(UNIT|D\.U\.|DU|APARTMENT)', 1) AS DOUBLE) as stated_units,
-                    ST_Point(TRY_CAST(longitude AS DOUBLE), TRY_CAST(latitude AS DOUBLE)) as geom
-                FROM building_permits
-                WHERE reported_cost IS NOT NULL AND longitude IS NOT NULL AND latitude IS NOT NULL
-            ),
-            permit_costs AS (
-                SELECT 
-                    UPPER(n.community) as neighborhood_name,
-                    (p.raw_cost / p.stated_units) * 1.3 as true_cost_per_unit
-                FROM valid_permits p
-                JOIN ST_Read('neighborhoods.geojson') n ON ST_Intersects(ST_Transform(p.geom, 'EPSG:4326', 'EPSG:3435', true), ST_Transform(n.geom, 'EPSG:4326', 'EPSG:3435', true))
-                WHERE p.stated_units >= 2 AND (p.raw_cost / p.stated_units) BETWEEN 100000 AND 600000
-            )
-            SELECT neighborhood_name,
-                   MEDIAN(true_cost_per_unit) as dynamic_cost_per_unit
-            FROM permit_costs
-            GROUP BY neighborhood_name;
-        """)
-    else:
-        print("⏳ [4.5/5] API down. Falling back to hardcoded Construction Costs...", end="", flush=True)
-        df_costs = pd.DataFrame(list(CHICAGO_CONSTRUCTION_COSTS.items()), columns=['neighborhood_name', 'dynamic_cost_per_unit'])
-        con.register('fallback_costs_df', df_costs)
-        con.execute("CREATE OR REPLACE TEMPORARY TABLE step4b_construction_costs AS SELECT * FROM fallback_costs_df")
-    print(f" ✅ ({time.time() - t0:.1f}s)")
-
-    # STEP 5: FINANCIALS
+    # --- STEP 5: FINANCIALS ---
     t0 = time.time()
     print("⏳ [5/5] Executing Real Estate Pro Forma equations...", end="", flush=True)
-
     con.execute(f"""
         CREATE OR REPLACE TEMPORARY TABLE step5_pro_forma AS
         WITH pro_forma_parcels AS (
@@ -280,8 +204,12 @@ def run_spatial_pipeline(con, is_sandbox=False):
                 COALESCE(nsr.market_correction_multiplier, {DEFAULT_SALES_MULTIPLIER}) as market_correction_multiplier,
                 GREATEST((COALESCE(pd.tot_bldg_value, 0.0) + COALESCE(pd.tot_land_value, 0.0)) * COALESCE(nsr.market_correction_multiplier, {DEFAULT_SALES_MULTIPLIER}), 10000.0) as acquisition_cost,
                 
-                COALESCE(cc.dynamic_cost_per_unit, {DEFAULT_CONSTRUCTION_COST}) as cost_per_unit_low_density,
-                COALESCE(cc.dynamic_cost_per_unit * 1.30, {DEFAULT_CONSTRUCTION_COST} * 1.30) as cost_per_unit_high_density,
+                CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
+                     THEN 300000.0 ELSE 240000.0 END as cost_per_unit_low_density,
+                
+                CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
+                     THEN 420000.0 ELSE 336000.0 END as cost_per_unit_high_density,
+                
                 1.15 as target_profit_margin,
                 
                 GREATEST(1, CASE WHEN pd.zone_class LIKE 'RS-1%' OR pd.zone_class LIKE 'RS-2%' THEN FLOOR(pd.area_sqft / 5000) WHEN pd.zone_class LIKE 'RS-3%' THEN FLOOR(pd.area_sqft / 2500) WHEN pd.zone_class LIKE 'RT-3.5%' THEN FLOOR(pd.area_sqft / 1250) WHEN pd.zone_class LIKE 'RT-4%' THEN FLOOR(pd.area_sqft / 1000) WHEN pd.zone_class LIKE 'RM-4.5%' OR pd.zone_class LIKE 'RM-5%' THEN FLOOR(pd.area_sqft / 400) WHEN pd.zone_class LIKE 'RM-6%' OR pd.zone_class LIKE 'RM-6.5%' THEN FLOOR(pd.area_sqft / 200) WHEN pd.zone_class LIKE '%-1' THEN FLOOR(pd.area_sqft / 1000) WHEN pd.zone_class LIKE '%-2' OR pd.zone_class LIKE '%-3' THEN FLOOR(pd.area_sqft / 400) WHEN pd.zone_class LIKE '%-5' OR pd.zone_class LIKE '%-6' THEN FLOOR(pd.area_sqft / 200) ELSE FLOOR(pd.area_sqft / 1000) END) as current_capacity,
@@ -293,15 +221,7 @@ def run_spatial_pipeline(con, is_sandbox=False):
             
             FROM step3_distances pd
             LEFT JOIN neighborhood_rents r ON pd.neighborhood_name = r.neighborhood_name
-            LEFT JOIN step4b_construction_costs cc ON pd.neighborhood_name = cc.neighborhood_name
-            LEFT JOIN step4_sales_ratio nsr 
-                ON pd.neighborhood_name = nsr.neighborhood_name 
-                AND nsr.value_bucket = CASE 
-                    WHEN (pd.tot_bldg_value + pd.tot_land_value) < 250000 THEN 'T1_UNDER_250K'
-                    WHEN (pd.tot_bldg_value + pd.tot_land_value) < 500000 THEN 'T2_250K_500K'
-                    WHEN (pd.tot_bldg_value + pd.tot_land_value) < 1000000 THEN 'T3_500K_1M'
-                    ELSE 'T4_OVER_1M' 
-                END
+            LEFT JOIN step4_sales_ratio nsr ON pd.neighborhood_name = nsr.neighborhood_name
         )
         SELECT center_geom, area_sqft, parcels_combined, zone_class, neighborhood_name, prop_address,
             local_rent, value_per_new_unit, acquisition_cost, tot_existing_units as existing_units, building_age, existing_sqft,
@@ -366,8 +286,11 @@ def run_spatial_pipeline(con, is_sandbox=False):
             THEN GREATEST(0, GREATEST(current_capacity, pritzker_capacity, cap_train_and_bus_combo) - current_capacity) ELSE 0 END as tot_train_and_bus_combo,
 
             parcels_combined, area_sqft,
-            CASE WHEN zone_class NOT LIKE 'RS-1%' AND zone_class NOT LIKE 'RS-2%' AND zone_class NOT LIKE 'RS-3%' THEN parcels_combined ELSE 0 END as parcels_mf_zoned,
-            CASE WHEN zone_class NOT LIKE 'RS-1%' AND zone_class NOT LIKE 'RS-2%' AND zone_class NOT LIKE 'RS-3%' THEN area_sqft ELSE 0 END as area_mf_zoned
+            
+            -- FIX: Multi-Family strictly defined as RM and RT zones (restoring the 80/30 split)
+            CASE WHEN zone_class LIKE 'RM-%' OR zone_class LIKE 'RT-%' THEN parcels_combined ELSE 0 END as parcels_mf_zoned,
+            CASE WHEN zone_class LIKE 'RM-%' OR zone_class LIKE 'RT-%' THEN area_sqft ELSE 0 END as area_mf_zoned
+            
         FROM pro_forma_parcels
     """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
