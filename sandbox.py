@@ -137,7 +137,7 @@ def run_sandbox():
     try:
         con.execute("SELECT 1 FROM parcel_sales LIMIT 1")
         has_sales_data = True
-    except:
+    except duckdb.duckdb.CatalogException:
         has_sales_data = False
 
     if has_sales_data:
@@ -149,13 +149,19 @@ def run_sandbox():
                        TRY_CAST(sale_price AS DOUBLE) as sale_price
                 FROM parcel_sales
                 WHERE TRY_CAST(sale_price AS DOUBLE) > 20000 
+            ),
+            valid_ratios AS (
+                SELECT ep.neighborhood_name,
+                       (s.sale_price / (ep.tot_bldg_value + ep.tot_land_value)) as ratio
+                FROM step2_eligible ep
+                JOIN clean_sales s ON ep.pin10 = s.pin10
+                WHERE (ep.tot_bldg_value + ep.tot_land_value) > 20000
             )
-            SELECT ep.neighborhood_name,
-                   MEDIAN(s.sale_price / NULLIF(ep.tot_bldg_value + ep.tot_land_value, 0)) as market_correction_multiplier
-            FROM step2_eligible ep
-            JOIN clean_sales s ON ep.pin10 = s.pin10
-            WHERE (ep.tot_bldg_value + ep.tot_land_value) > 20000
-            GROUP BY ep.neighborhood_name;
+            SELECT neighborhood_name,
+                   MEDIAN(ratio) as market_correction_multiplier
+            FROM valid_ratios
+            WHERE ratio BETWEEN 0.5 AND 2.5 -- Filter out $1 transfers or data errors
+            GROUP BY neighborhood_name;
         """)
     else:
         print("⏳ [4/5] API down. Falling back to hardcoded Market Correction Multipliers...", end="", flush=True)
