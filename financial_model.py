@@ -228,64 +228,53 @@ def run_spatial_pipeline(con, is_sandbox=False):
     except duckdb.duckdb.CatalogException:
         has_sales_data = False
 
-    if has_sales_data:
-        print("⏳ [4/5] Calculating Property-Type Stratified Sales Ratios...", end="", flush=True)
-        con.execute("""
-            CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS
-            WITH clean_sales AS (
-                SELECT SUBSTR(LPAD(CAST(pin AS VARCHAR), 14, '0'), 1, 10) as pin10, 
-                       TRY_CAST(sale_price AS DOUBLE) as sale_price
-                FROM parcel_sales
-                WHERE TRY_CAST(sale_price AS DOUBLE) > 20000 
-            ),
-            valid_ratios AS (
-                SELECT ep.neighborhood_name,
-                       CASE 
-                           WHEN ep.primary_prop_class IN ('211', '212', '213', '214') THEN 'MULTI_FAMILY'
-                           WHEN ep.primary_prop_class IN ('202', '203', '204', '205', '206', '207', '208', '209', '210', '234', '278') THEN 'SFH'
-                           WHEN ep.primary_prop_class LIKE '3%' OR ep.primary_prop_class LIKE '5%' THEN 'COMMERCIAL'
-                           ELSE 'OTHER' 
-                       END as prop_category,
-                       (s.sale_price / (ep.tot_bldg_value + ep.tot_land_value)) as ratio
-                FROM step3_distances ep
-                JOIN clean_sales s ON ep.pin10 = s.pin10
-                WHERE (ep.tot_bldg_value + ep.tot_land_value) > 20000
-            ),
-            bucket_medians AS (
-                SELECT neighborhood_name, prop_category, MEDIAN(ratio) as bucket_multiplier
-                FROM valid_ratios
-                WHERE ratio BETWEEN 0.5 AND 3.5
-                GROUP BY neighborhood_name, prop_category
-            ),
-            neighborhood_medians AS (
-                SELECT neighborhood_name, MEDIAN(ratio) as neighborhood_multiplier
-                FROM valid_ratios
-                WHERE ratio BETWEEN 0.5 AND 3.5
-                GROUP BY neighborhood_name
-            ),
-            all_categories AS (
-                SELECT 'MULTI_FAMILY' as prop_category UNION ALL
-                SELECT 'SFH' UNION ALL
-                SELECT 'COMMERCIAL' UNION ALL
-                SELECT 'OTHER'
-            )
-            SELECT n.neighborhood_name, 
-                   ac.prop_category,
-                   COALESCE(b.bucket_multiplier, n.neighborhood_multiplier) as market_correction_multiplier
-            FROM neighborhood_medians n
-            CROSS JOIN all_categories ac
-            LEFT JOIN bucket_medians b ON n.neighborhood_name = b.neighborhood_name AND ac.prop_category = b.prop_category;
-        """)
-    else:
-        print("⏳ [4/5] API down. Falling back to hardcoded Market Correction Multipliers...", end="", flush=True)
-        df_mults = pd.DataFrame(list(CHICAGO_SALES_MULTIPLIERS.items()), columns=['neighborhood_name', 'fallback_mult'])
-        con.register('fallback_mults_df', df_mults)
-        con.execute("""
-            CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS 
-            SELECT f.neighborhood_name, c.prop_category, f.fallback_mult as market_correction_multiplier 
-            FROM fallback_mults_df f
-            CROSS JOIN (SELECT 'MULTI_FAMILY' as prop_category UNION ALL SELECT 'SFH' UNION ALL SELECT 'COMMERCIAL' UNION ALL SELECT 'OTHER') c
-        """)
+    print("⏳ [4/5] Calculating Property-Type Stratified Sales Ratios...", end="", flush=True)
+    con.execute("""
+        CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS
+        WITH clean_sales AS (
+            SELECT SUBSTR(LPAD(CAST(pin AS VARCHAR), 14, '0'), 1, 10) as pin10, 
+                   TRY_CAST(sale_price AS DOUBLE) as sale_price
+            FROM parcel_sales
+            WHERE TRY_CAST(sale_price AS DOUBLE) > 20000 
+        ),
+        valid_ratios AS (
+            SELECT ep.neighborhood_name,
+                   CASE 
+                       WHEN ep.primary_prop_class IN ('211', '212', '213', '214') THEN 'MULTI_FAMILY'
+                       WHEN ep.primary_prop_class IN ('202', '203', '204', '205', '206', '207', '208', '209', '210', '234', '278') THEN 'SFH'
+                       WHEN ep.primary_prop_class LIKE '3%' OR ep.primary_prop_class LIKE '5%' THEN 'COMMERCIAL'
+                       ELSE 'OTHER' 
+                   END as prop_category,
+                   (s.sale_price / (ep.tot_bldg_value + ep.tot_land_value)) as ratio
+            FROM step3_distances ep
+            JOIN clean_sales s ON ep.pin10 = s.pin10
+            WHERE (ep.tot_bldg_value + ep.tot_land_value) > 20000
+        ),
+        bucket_medians AS (
+            SELECT neighborhood_name, prop_category, MEDIAN(ratio) as bucket_multiplier
+            FROM valid_ratios
+            WHERE ratio BETWEEN 0.5 AND 3.5
+            GROUP BY neighborhood_name, prop_category
+        ),
+        neighborhood_medians AS (
+            SELECT neighborhood_name, MEDIAN(ratio) as neighborhood_multiplier
+            FROM valid_ratios
+            WHERE ratio BETWEEN 0.5 AND 3.5
+            GROUP BY neighborhood_name
+        ),
+        all_categories AS (
+            SELECT 'MULTI_FAMILY' as prop_category UNION ALL
+            SELECT 'SFH' UNION ALL
+            SELECT 'COMMERCIAL' UNION ALL
+            SELECT 'OTHER'
+        )
+        SELECT n.neighborhood_name, 
+               ac.prop_category,
+               COALESCE(b.bucket_multiplier, n.neighborhood_multiplier) as market_correction_multiplier
+        FROM neighborhood_medians n
+        CROSS JOIN all_categories ac
+        LEFT JOIN bucket_medians b ON n.neighborhood_name = b.neighborhood_name AND ac.prop_category = b.prop_category;
+    """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
     t0 = time.time()
