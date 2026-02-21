@@ -31,7 +31,6 @@ If Illinois adopts a True CA SB 79 model allowing building near trains and bus i
 * The share of new housing built in Chicago's 15 most expensive, highest-rent-growth neighborhoods nearly doubles to **{{ pct_sb79 }}%**.
 
 ## Economic & Fiscal Impact: The Property Tax Yield
-
 Upzoning is also a fiscal boon. When we measure property tax yield per acre in Chicago's top 5 highest-rent neighborhoods, there is an obvious financial incentive for Transit-Oriented Development:
 
 * **Single-Family Home Zone:** **{{ sfh_yield }}** in property tax revenue per acre.
