@@ -11,9 +11,10 @@ DATASETS = {
     'cta_bus_routes.geojson': 'https://data.cityofchicago.org/api/geospatial/6uva-a5ei?method=export&format=GeoJSON',
     'zillow_rent.csv': 'https://files.zillowstatic.com/research/public_csvs/zori/Neighborhood_zori_uc_sfrcondomfr_sm_month.csv',
     'assessor_universe.csv': 'https://datacatalog.cookcountyil.gov/api/views/pabr-t5kh/rows.csv?accessType=DOWNLOAD',
-    
-    # NEW: Filtered API call to get ONLY 2023 Assessed Values (Fast 50MB download)
-    'assessed_values_2023.csv': 'https://datacatalog.cookcountyil.gov/resource/uzyt-m557.csv?$where=year=2023&$limit=2000000'
+    'assessed_values_2023.csv': 'https://datacatalog.cookcountyil.gov/resource/uzyt-m557.csv?$where=year=2023&$limit=2000000',
+
+    # NEW: Corrected ID for Cook County Residential Characteristics (Age, Square Footage)
+    'res_characteristics.csv': 'https://datacatalog.cookcountyil.gov/resource/x54s-btds.csv?$where=year=2023&$limit=2000000'
 }
 
 def download_file(filename, url):
@@ -45,7 +46,8 @@ def setup_database():
         'cta_stations.geojson': 'transit_stops',
         'cta_bus_routes.geojson': 'bus_routes',
         'assessor_universe.csv': 'assessor_universe',
-        'assessed_values_2023.csv': 'assessed_values'
+        'assessed_values_2023.csv': 'assessed_values',
+        'res_characteristics.csv': 'res_characteristics'
     }
 
     for filename, table_name in table_map.items():
