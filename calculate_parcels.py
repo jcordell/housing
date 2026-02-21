@@ -54,7 +54,6 @@ def run_parcel_calculations(full_recalculate=True):
             
             SELECT bp.pin10, bp.geom_3435, bp.neighborhood_name, bp.area_sqft, bp.zone_class,
                 u.property_class as primary_prop_class,
-                
                 GREATEST(
                     CAST(u.tax_pin_count AS DOUBLE), 
                     CASE 
@@ -66,7 +65,6 @@ def run_parcel_calculations(full_recalculate=True):
                         WHEN u.property_class LIKE '3%' OR u.property_class LIKE '9%' THEN GREATEST(1.0, FLOOR(rc.char_bldg_sf / 1000.0))
                         ELSE 1.0 END
                 ) as existing_units,
-                
                 (2024 - rc.char_yrblt) as building_age,
                 rc.char_bldg_sf as existing_sqft,
                 pa.prop_address,
@@ -131,7 +129,7 @@ def run_parcel_calculations(full_recalculate=True):
         has_sales_data = False
 
     if has_sales_data:
-        print("⏳ [4/4] Calculating Dynamic Sales Ratios...", end="", flush=True)
+        print("⏳ [4/4] Calculating Stratified Sales Ratios by Value Tier...", end="", flush=True)
         con.execute("""
             CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS
             WITH clean_sales AS (
@@ -142,16 +140,41 @@ def run_parcel_calculations(full_recalculate=True):
             ),
             valid_ratios AS (
                 SELECT ep.neighborhood_name,
+                       CASE 
+                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 250000 THEN 'T1_UNDER_250K'
+                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 500000 THEN 'T2_250K_500K'
+                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 1000000 THEN 'T3_500K_1M'
+                           ELSE 'T4_OVER_1M' 
+                       END as value_bucket,
                        (s.sale_price / (ep.tot_bldg_value + ep.tot_land_value)) as ratio
                 FROM parcel_base_unfiltered ep
                 JOIN clean_sales s ON ep.pin10 = s.pin10
                 WHERE (ep.tot_bldg_value + ep.tot_land_value) > 20000
+            ),
+            bucket_medians AS (
+                SELECT neighborhood_name, value_bucket, MEDIAN(ratio) as bucket_multiplier
+                FROM valid_ratios
+                WHERE ratio BETWEEN 0.5 AND 3.5
+                GROUP BY neighborhood_name, value_bucket
+            ),
+            neighborhood_medians AS (
+                SELECT neighborhood_name, MEDIAN(ratio) as neighborhood_multiplier
+                FROM valid_ratios
+                WHERE ratio BETWEEN 0.5 AND 3.5
+                GROUP BY neighborhood_name
+            ),
+            all_buckets AS (
+                SELECT 'T1_UNDER_250K' as value_bucket UNION ALL
+                SELECT 'T2_250K_500K' UNION ALL
+                SELECT 'T3_500K_1M' UNION ALL
+                SELECT 'T4_OVER_1M'
             )
-            SELECT neighborhood_name,
-                   MEDIAN(ratio) as market_correction_multiplier
-            FROM valid_ratios
-            WHERE ratio BETWEEN 0.5 AND 2.5 -- Filter out $1 transfers or data errors
-            GROUP BY neighborhood_name;
+            SELECT n.neighborhood_name, 
+                   ab.value_bucket,
+                   COALESCE(b.bucket_multiplier, n.neighborhood_multiplier) as market_correction_multiplier
+            FROM neighborhood_medians n
+            CROSS JOIN all_buckets ab
+            LEFT JOIN bucket_medians b ON n.neighborhood_name = b.neighborhood_name AND ab.value_bucket = b.value_bucket;
         """)
     else:
         print("⏳ [4/4] API down. Falling back to hardcoded Market Correction Multipliers...", end="", flush=True)
@@ -159,8 +182,9 @@ def run_parcel_calculations(full_recalculate=True):
         con.register('fallback_mults_df', df_mults)
         con.execute("""
             CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS 
-            SELECT neighborhood_name, fallback_mult as market_correction_multiplier 
+            SELECT neighborhood_name, value_bucket, fallback_mult as market_correction_multiplier 
             FROM fallback_mults_df
+            CROSS JOIN (SELECT 'T1_UNDER_250K' as value_bucket UNION SELECT 'T2_250K_500K' UNION SELECT 'T3_500K_1M' UNION SELECT 'T4_OVER_1M') buckets
         """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
@@ -181,9 +205,36 @@ def run_parcel_calculations(full_recalculate=True):
                 CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_2640 AND (pd.is_hf_1320 OR pd.all_bus_count >= 2) THEN CASE WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) ELSE FLOOR((pd.area_sqft / 43560.0) * 100) END ELSE 0 END as cap_train_and_bus_combo
             FROM parcel_base_unfiltered pd
             LEFT JOIN neighborhood_rents r ON pd.neighborhood_name = r.neighborhood_name
-            LEFT JOIN step4_sales_ratio nsr ON pd.neighborhood_name = nsr.neighborhood_name
+            LEFT JOIN step4_sales_ratio nsr 
+                ON pd.neighborhood_name = nsr.neighborhood_name 
+                AND nsr.value_bucket = CASE 
+                    WHEN (pd.tot_bldg_value + pd.tot_land_value) < 250000 THEN 'T1_UNDER_250K'
+                    WHEN (pd.tot_bldg_value + pd.tot_land_value) < 500000 THEN 'T2_250K_500K'
+                    WHEN (pd.tot_bldg_value + pd.tot_land_value) < 1000000 THEN 'T3_500K_1M'
+                    ELSE 'T4_OVER_1M' 
+                END
         ),
         {financial_ctes}
         SELECT 
             neighborhood_name, 
-            SUM(fp.feasible
+            SUM(fp.feasible_existing) as feasible_existing,
+            SUM(fp.new_pritzker) as new_pritzker, 
+            SUM(fp.add_true_sb79) as add_true_sb79, 
+            SUM(fp.tot_true_sb79) as tot_true_sb79, 
+            SUM(fp.add_train_only) as add_train_only, 
+            SUM(fp.tot_train_only) as tot_train_only, 
+            SUM(fp.add_train_and_hf_bus) as add_train_and_hf_bus, 
+            SUM(fp.tot_train_and_hf_bus) as tot_train_and_hf_bus, 
+            SUM(fp.add_train_and_bus_combo) as add_train_and_bus_combo, 
+            SUM(fp.tot_train_and_bus_combo) as tot_train_and_bus_combo, 
+            SUM(fp.parcels_combined) as total_parcels,
+            SUM(fp.area_sqft) as total_area_sqft,
+            SUM(fp.parcels_mf_zoned) as parcels_mf_zoned,
+            SUM(fp.area_mf_zoned) as area_mf_zoned,
+            ST_Y(ST_Centroid(ANY_VALUE(fp.center_geom))) as label_lat, 
+            ST_X(ST_Centroid(ANY_VALUE(fp.center_geom))) as label_lon
+        FROM filtered_parcels fp
+        GROUP BY neighborhood_name HAVING SUM(fp.tot_true_sb79) > 0 OR SUM(fp.tot_train_and_bus_combo) > 0
+    """)
+    print(" ✅")
+    con.close()

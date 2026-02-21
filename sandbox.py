@@ -60,8 +60,6 @@ def run_sandbox():
         
         SELECT bp.pin10, bp.geom_3435, bp.neighborhood_name, bp.area_sqft, bp.zone_class,
             u.property_class as primary_prop_class,
-            
-            -- Smarter Unit Estimation Logic
             GREATEST(
                 CAST(u.tax_pin_count AS DOUBLE), 
                 CASE 
@@ -70,11 +68,9 @@ def run_sandbox():
                     WHEN u.property_class = '212' THEN 3.0
                     WHEN u.property_class = '213' THEN 5.0
                     WHEN u.property_class = '214' THEN 10.0
-                    -- Estimate apartments for large commercial/mixed-use buildings based on sqft
                     WHEN u.property_class LIKE '3%' OR u.property_class LIKE '9%' THEN GREATEST(1.0, FLOOR(rc.char_bldg_sf / 1000.0))
                     ELSE 1.0 END
             ) as existing_units,
-            
             (2024 - rc.char_yrblt) as building_age,
             rc.char_bldg_sf as existing_sqft,
             pa.prop_address,
@@ -106,12 +102,8 @@ def run_sandbox():
         hf_1320 AS (SELECT DISTINCT ep.pin10 FROM step2_eligible ep JOIN projected_bus_hf b ON ST_Intersects(ep.geom_3435, ST_Buffer(b.geom_3435, 1320))),
         
         bus_counts AS (
-            SELECT ep.pin10, 
-                   COUNT(DISTINCT b.route) as all_bus_count, 
-                   COUNT(DISTINCT CASE WHEN b.route IN ('4', '9', '12', '14', 'J14', '20', '34', '47', '49', '53', '54', '55', '60', '63', '66', '72', '77', '79', '81', '82', '95') THEN b.route END) as hf_bus_count
-            FROM step2_eligible ep 
-            JOIN projected_bus_all b ON ST_Intersects(ep.geom_3435, ST_Buffer(b.geom_3435, 1320))
-            GROUP BY ep.pin10
+            SELECT ep.pin10, COUNT(DISTINCT b.route) as all_bus_count, COUNT(DISTINCT CASE WHEN b.route IN ('4', '9', '12', '14', 'J14', '20', '34', '47', '49', '53', '54', '55', '60', '63', '66', '72', '77', '79', '81', '82', '95') THEN b.route END) as hf_bus_count
+            FROM step2_eligible ep JOIN projected_bus_all b ON ST_Intersects(ep.geom_3435, ST_Buffer(b.geom_3435, 1320)) GROUP BY ep.pin10
         )
         
         SELECT ep.*, 
@@ -132,7 +124,7 @@ def run_sandbox():
     """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
-    # --- STEP 4: SALES FALLBACK ---
+    # --- STEP 4: VALUE-STRATIFIED SALES RATIO ---
     t0 = time.time()
     try:
         con.execute("SELECT 1 FROM parcel_sales LIMIT 1")
@@ -141,7 +133,7 @@ def run_sandbox():
         has_sales_data = False
 
     if has_sales_data:
-        print("⏳ [4/5] Calculating Dynamic Sales Ratios...", end="", flush=True)
+        print("⏳ [4/5] Calculating Stratified Sales Ratios by Value Tier...", end="", flush=True)
         con.execute("""
             CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS
             WITH clean_sales AS (
@@ -152,16 +144,42 @@ def run_sandbox():
             ),
             valid_ratios AS (
                 SELECT ep.neighborhood_name,
+                       CASE 
+                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 250000 THEN 'T1_UNDER_250K'
+                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 500000 THEN 'T2_250K_500K'
+                           WHEN (ep.tot_bldg_value + ep.tot_land_value) < 1000000 THEN 'T3_500K_1M'
+                           ELSE 'T4_OVER_1M' 
+                       END as value_bucket,
                        (s.sale_price / (ep.tot_bldg_value + ep.tot_land_value)) as ratio
                 FROM step2_eligible ep
                 JOIN clean_sales s ON ep.pin10 = s.pin10
                 WHERE (ep.tot_bldg_value + ep.tot_land_value) > 20000
+            ),
+            bucket_medians AS (
+                SELECT neighborhood_name, value_bucket, MEDIAN(ratio) as bucket_multiplier
+                FROM valid_ratios
+                WHERE ratio BETWEEN 0.5 AND 3.5
+                GROUP BY neighborhood_name, value_bucket
+            ),
+            neighborhood_medians AS (
+                SELECT neighborhood_name, MEDIAN(ratio) as neighborhood_multiplier
+                FROM valid_ratios
+                WHERE ratio BETWEEN 0.5 AND 3.5
+                GROUP BY neighborhood_name
+            ),
+            all_buckets AS (
+                SELECT 'T1_UNDER_250K' as value_bucket UNION ALL
+                SELECT 'T2_250K_500K' UNION ALL
+                SELECT 'T3_500K_1M' UNION ALL
+                SELECT 'T4_OVER_1M'
             )
-            SELECT neighborhood_name,
-                   MEDIAN(ratio) as market_correction_multiplier
-            FROM valid_ratios
-            WHERE ratio BETWEEN 0.5 AND 2.5 -- Filter out $1 transfers or data errors
-            GROUP BY neighborhood_name;
+            SELECT n.neighborhood_name, 
+                   ab.value_bucket,
+                   -- If a specific bucket has no sales data, fall back to the neighborhood average
+                   COALESCE(b.bucket_multiplier, n.neighborhood_multiplier) as market_correction_multiplier
+            FROM neighborhood_medians n
+            CROSS JOIN all_buckets ab
+            LEFT JOIN bucket_medians b ON n.neighborhood_name = b.neighborhood_name AND ab.value_bucket = b.value_bucket;
         """)
     else:
         print("⏳ [4/5] API down. Falling back to hardcoded Market Correction Multipliers...", end="", flush=True)
@@ -169,8 +187,9 @@ def run_sandbox():
         con.register('fallback_mults_df', df_mults)
         con.execute("""
             CREATE OR REPLACE TEMPORARY TABLE step4_sales_ratio AS 
-            SELECT neighborhood_name, fallback_mult as market_correction_multiplier 
+            SELECT neighborhood_name, value_bucket, fallback_mult as market_correction_multiplier 
             FROM fallback_mults_df
+            CROSS JOIN (SELECT 'T1_UNDER_250K' as value_bucket UNION SELECT 'T2_250K_500K' UNION SELECT 'T3_500K_1M' UNION SELECT 'T4_OVER_1M') buckets
         """)
     print(f" ✅ ({time.time() - t0:.1f}s)")
 
@@ -192,7 +211,16 @@ def run_sandbox():
                 CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_2640 AND (pd.is_hf_1320 OR pd.all_bus_count >= 2) THEN CASE WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) ELSE FLOOR((pd.area_sqft / 43560.0) * 100) END ELSE 0 END as cap_train_and_bus_combo
             FROM step3_distances pd
             LEFT JOIN neighborhood_rents r ON pd.neighborhood_name = r.neighborhood_name
-            LEFT JOIN step4_sales_ratio nsr ON pd.neighborhood_name = nsr.neighborhood_name
+            
+            -- STRATIFIED JOIN: Join on neighborhood AND value bucket
+            LEFT JOIN step4_sales_ratio nsr 
+                ON pd.neighborhood_name = nsr.neighborhood_name 
+                AND nsr.value_bucket = CASE 
+                    WHEN (pd.tot_bldg_value + pd.tot_land_value) < 250000 THEN 'T1_UNDER_250K'
+                    WHEN (pd.tot_bldg_value + pd.tot_land_value) < 500000 THEN 'T2_250K_500K'
+                    WHEN (pd.tot_bldg_value + pd.tot_land_value) < 1000000 THEN 'T3_500K_1M'
+                    ELSE 'T4_OVER_1M' 
+                END
         ),
         {financial_ctes}
         SELECT * FROM filtered_parcels
@@ -213,6 +241,8 @@ def run_sandbox():
         sample_df = df_feasible.groupby('neighborhood_name').head(2)
         for _, row in sample_df.iterrows():
             clean_addr = str(row['prop_address']).title() if pd.notnull(row['prop_address']) else 'Unknown Address'
+            assessed_val = row['tot_bldg_value'] + row['tot_land_value']
+
             print(f"📍 {row['neighborhood_name']} | {clean_addr} | Zone: {row['zone_class']} | Area: {row['area_sqft']:,.0f} sqft")
             print(f"   🏠 EXISTING: {row['existing_units']} units | Age: {row['building_age']} yrs | Sqft: {row['existing_sqft']} | Class: {row['primary_prop_class']}")
             print(f"   📈 PROPOSED: {row['current_capacity']} units | Value/Unit: ${row['value_per_new_unit']:,.0f} (Rent: ${row['local_rent']:,.0f}/mo)")
@@ -222,7 +252,7 @@ def run_sandbox():
             total_revenue = row['current_capacity'] * row['value_per_new_unit']
             total_cost = (row['acquisition_cost'] + (row['current_capacity'] * cpu)) * profit_margin
 
-            print(f"   📊 MARKET MULTIPLIER: {row['market_correction_multiplier']:.2f}x (Applied to Tax Assessment)")
+            print(f"   📊 MARKET MULTIPLIER: {row['market_correction_multiplier']:.2f}x (Applied to Tax Assessed Value of ${assessed_val:,.0f})")
             print(f"   💰 MATH: Acq Cost: ${row['acquisition_cost']:,.0f} + Construction: ${(row['current_capacity']*cpu):,.0f} = Total Cost: ${total_cost:,.0f} (inc. profit)")
             print(f"            Expected Revenue: ${total_revenue:,.0f}")
             print("-" * 80)
