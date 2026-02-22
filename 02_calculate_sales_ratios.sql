@@ -88,7 +88,7 @@ pin_level_values AS (
 )
 
 SELECT
-    COALESCE(prop_address, pin10) as prop_id,
+    COALESCE(REPLACE(prop_address, ' REAR', ''), pin10) as prop_id,
     ANY_VALUE(geom_3435) as center_geom,
     ANY_VALUE(neighborhood_name) as neighborhood_name,
     ANY_VALUE(zone_class) as zone_class,
@@ -112,4 +112,4 @@ SELECT
     SUM(tot_land_value) as tot_land_value,
     ARG_MAX(market_correction_multiplier, tot_bldg_value + tot_land_value) as market_correction_multiplier
 FROM pin_level_values
-GROUP BY COALESCE(prop_address, pin10);
+GROUP BY COALESCE(REPLACE(prop_address, ' REAR', ''), pin10);

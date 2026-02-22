@@ -89,7 +89,7 @@ filtered AS (
         (existing_units < 40) as pass_max_units,
         (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 250000)) as pass_age_value,
         (zone_class NOT IN ('OS', 'POS', 'PMD')) as pass_zoning_class,
-        (primary_prop_class IS NOT NULL AND primary_prop_class != 'UNKNOWN' AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX') as pass_prop_class,
+        (primary_prop_class IS NOT NULL AND primary_prop_class != 'UNKNOWN' AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '3%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX') as pass_prop_class,
         ((tot_bldg_value + tot_land_value) >= 1000) as pass_min_value,
         ((current_capacity * value_per_new_unit) > (acquisition_cost + (current_capacity * cpu_current)) * target_profit_margin) as pass_financial_existing
     FROM cost_applied
