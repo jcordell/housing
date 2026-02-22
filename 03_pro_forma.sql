@@ -1,16 +1,16 @@
 CREATE OR REPLACE TABLE step5_pro_forma AS
 WITH combined AS (
     SELECT
-        sb.geom_3435 as center_geom, sb.neighborhood_name, sb.area_sqft, sb.zone_class, 1 as parcels_combined,
-        sb.is_train_1320, sb.is_train_2640, sb.is_brt_1320, sb.is_brt_2640, sb.is_hf_1320, sb.all_bus_count, sb.hf_bus_count,
-        COALESCE(pv.existing_units, 0.0) as existing_units,
-        COALESCE(pv.primary_prop_class, 'UNKNOWN') as primary_prop_class,
-        COALESCE(pv.tot_bldg_value, 0.0) as tot_bldg_value,
-        COALESCE(pv.tot_land_value, 0.0) as tot_land_value,
-        COALESCE(pv.building_age, 0) as building_age,
-        COALESCE(pv.existing_sqft, 0.0) as existing_sqft,
-        pv.prop_address,
-        pv.market_correction_multiplier,
+        up.center_geom, up.neighborhood_name, up.area_sqft, up.zone_class, up.parcels_combined,
+        up.is_train_1320, up.is_train_2640, up.is_brt_1320, up.is_brt_2640, up.is_hf_1320, up.all_bus_count, up.hf_bus_count,
+        COALESCE(up.existing_units, 0.0) as existing_units,
+        COALESCE(up.primary_prop_class, 'UNKNOWN') as primary_prop_class,
+        COALESCE(up.tot_bldg_value, 0.0) as tot_bldg_value,
+        COALESCE(up.tot_land_value, 0.0) as tot_land_value,
+        COALESCE(up.building_age, 0) as building_age,
+        COALESCE(up.existing_sqft, 0.0) as existing_sqft,
+        up.prop_address,
+        up.market_correction_multiplier,
 
         {{ default_rent_per_sqft }} as rent_per_sqft,
         {{ default_cap_rate }} as cap_rate,
@@ -18,14 +18,13 @@ WITH combined AS (
         {{ cost_5_15_units }} as cost_5_15_units,
         {{ cost_15_plus_units }} as cost_15_plus_units,
 
-        CASE WHEN sb.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE')
+        CASE WHEN up.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE')
              THEN {{ high_cost_acq_floor_per_sqft }} ELSE {{ default_acq_floor_per_sqft }} END as acq_cost_floor_per_sqft,
 
         {{ target_profit_margin }} as target_profit_margin,
         {{ unit_size_sqft }} as unit_size_sqft
 
-    FROM spatial_base sb
-    LEFT JOIN property_values_base pv ON sb.pin10 = pv.pin10
+    FROM unified_properties up
 ),
 capacities AS (
     SELECT *,
