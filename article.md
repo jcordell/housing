@@ -5,7 +5,7 @@ Illinois is facing a severe housing shortage. Governor Pritzker’s proposed BUI
 This proposal analyzes adding a Transit-Oriented Development (TOD) amendment similar to California's recently passed SB79.
 
 ## The "Missing Middle" in High-Cost Areas
-We analyzed the Zillow Observed Rent Index (ZORI) to identify Chicago's top 15 neighborhoods experiencing the most extreme 5-year rent spikes. Under the base BUILD Act, only **{{ pct_pritzker }}%** of new citywide housing capacity falls within these critical high-cost areas, despite them comprising **{{ pct_top15_area }}%** of the city's residential land.
+We analyzed the Zillow Observed Rent Index (ZORI) to identify Chicago's top 15 neighborhoods experiencing the most extreme rent spikes. Under the base BUILD Act, only **{{ pct_pritzker }}%** of new citywide housing capacity falls within these critical high-cost areas, despite them comprising **{{ pct_top15_area }}%** of the city's residential land.
 
 Why? Because the most desirable, walkable neighborhoods in Chicago are desirable *because* they are already dense.
 

@@ -1,10 +1,17 @@
 import folium
 from folium.features import DivIcon
 import json
+import yaml
+
+def load_config():
+    with open('config.yaml', 'r') as f:
+        return yaml.safe_load(f)
 
 def build_map(df_neighborhoods):
     print("Generating Interactive Map...")
-    with open('neighborhoods.geojson', 'r') as f:
+    config = load_config()
+
+    with open(config['files']['neighborhoods_geojson'], 'r') as f:
         geo_data = json.load(f)
 
     unit_lookup = df_neighborhoods.set_index('neighborhood_name').to_dict('index')

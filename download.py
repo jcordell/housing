@@ -1,23 +1,11 @@
 import os
 import requests
 import duckdb
+import yaml
 
-DB_FILE = "sb79_housing.duckdb"
-
-DATASETS = {
-    'chicago_zoning.geojson': 'https://data.cityofchicago.org/api/geospatial/djph-xxwh?method=export&format=GeoJSON',
-    'neighborhoods.geojson': 'https://data.cityofchicago.org/api/geospatial/bbvz-uum9?method=export&format=GeoJSON',
-    'cta_stations.geojson': 'https://data.cityofchicago.org/api/geospatial/8pix-ypme?method=export&format=GeoJSON',
-    'cta_bus_routes.geojson': 'https://data.cityofchicago.org/api/geospatial/6uva-a5ei?method=export&format=GeoJSON',
-    'assessor_universe.csv': 'https://datacatalog.cookcountyil.gov/api/views/pabr-t5kh/rows.csv?accessType=DOWNLOAD',
-    'assessed_values_2023.csv': 'https://datacatalog.cookcountyil.gov/resource/uzyt-m557.csv?$where=year=2023&$limit=2000000',
-    'res_characteristics.csv': 'https://datacatalog.cookcountyil.gov/resource/x54s-btds.csv?$where=year=2023&$limit=2000000',
-    'parcel_addresses.csv': 'https://datacatalog.cookcountyil.gov/resource/3723-97qp.csv?$where=year=2023&$limit=2000000',
-    'parcel_sales.csv': 'https://datacatalog.cookcountyil.gov/resource/wvhk-k5uv.csv?$where=year>=2023&$limit=500000',
-
-    # 🔥 NEW: All New Construction Permits since 2020
-    'building_permits.csv': "https://data.cityofchicago.org/resource/ydr8-5enu.csv?$where=permit_type='PERMIT - NEW CONSTRUCTION' AND issue_date>='2020-01-01'&$limit=50000"
-}
+def load_config():
+    with open('config.yaml', 'r') as f:
+        return yaml.safe_load(f)
 
 def download_file(filename, url):
     if os.path.exists(filename) and os.path.getsize(filename) > 50000:
@@ -36,23 +24,23 @@ def download_file(filename, url):
     except Exception as e:
         print(f"❌ Failed to download {filename}: {e}")
 
-def setup_database():
+def setup_database(config):
     print("\n📦 Loading data into DuckDB...")
-    con = duckdb.connect(DB_FILE)
+    con = duckdb.connect(config['database']['file_name'])
     con.execute("INSTALL spatial; LOAD spatial;")
 
     table_map = {
-        'chicago_zoning.geojson': 'zoning',
-        'cook_parcels.geojson': 'parcels',
-        'neighborhoods.geojson': 'neighborhoods',
-        'cta_stations.geojson': 'transit_stops',
-        'cta_bus_routes.geojson': 'bus_routes',
-        'assessor_universe.csv': 'assessor_universe',
-        'assessed_values_2023.csv': 'assessed_values',
-        'res_characteristics.csv': 'res_characteristics',
-        'parcel_addresses.csv': 'parcel_addresses',
-        'parcel_sales.csv': 'parcel_sales',
-        'building_permits.csv': 'building_permits' # <--- Added Permits
+        config['files']['chicago_zoning_geojson']: 'zoning',
+        config['files']['cook_parcels_geojson']: 'parcels',
+        config['files']['neighborhoods_geojson']: 'neighborhoods',
+        config['files']['cta_stations_geojson']: 'transit_stops',
+        config['files']['cta_bus_routes_geojson']: 'bus_routes',
+        config['files']['assessor_universe_csv']: 'assessor_universe',
+        config['files']['assessed_values_2023_csv']: 'assessed_values',
+        config['files']['res_characteristics_csv']: 'res_characteristics',
+        config['files']['parcel_addresses_csv']: 'parcel_addresses',
+        config['files']['parcel_sales_csv']: 'parcel_sales',
+        config['files']['building_permits_csv']: 'building_permits'
     }
 
     for filename, table_name in table_map.items():
@@ -72,7 +60,9 @@ def setup_database():
     con.close()
 
 if __name__ == "__main__":
-    for filename, url in DATASETS.items():
+    config = load_config()
+    for key, url in config['urls'].items():
+        filename = config['files'][key]
         download_file(filename, url)
-    setup_database()
+    setup_database(config)
     print("\n🚀 Ready! Now run: python3 sandbox.py")

@@ -1,42 +1,50 @@
 import duckdb
+import yaml
 import time
-from financial_model import run_spatial_pipeline
+from jinja2 import Template
 
-DB_FILE = "sb79_housing.duckdb"
+def load_config():
+    with open('config.yaml', 'r') as f:
+        return yaml.safe_load(f)
 
-def run_parcel_calculations(full_recalculate=True):
-    con = duckdb.connect(DB_FILE)
+def run_parcel_calculations(full_recalculate=True, is_sandbox=False):
+    config = load_config()
+    db_file = config['database']['file_name']
+
+    con = duckdb.connect(db_file)
     con.execute("INSTALL spatial; LOAD spatial;")
     con.execute("PRAGMA enable_progress_bar;")
 
     if full_recalculate:
-        print("\n🚀 Running Full Citywide Spatial Analysis...")
+        print("\n🚀 Running Full Spatial Analysis...")
 
-        run_spatial_pipeline(con, is_sandbox=False)
+        t0 = time.time()
+        print("⏳ [1/4] Isolating parcels and calculating spatial intersections...", end="", flush=True)
+        with open('01_spatial_joins.sql', 'r') as f:
+            template = Template(f.read())
+        con.execute(template.render(is_sandbox=is_sandbox, files=config['files']))
+        print(f" ✅ ({time.time() - t0:.1f}s)")
 
-        con.execute("""
-            CREATE OR REPLACE TABLE neighborhood_results AS
-            SELECT 
-                neighborhood_name, 
-                SUM(feasible_existing) as feasible_existing,
-                SUM(new_pritzker) as new_pritzker, 
-                SUM(add_true_sb79) as add_true_sb79, 
-                SUM(tot_true_sb79) as tot_true_sb79, 
-                SUM(add_train_only) as add_train_only, 
-                SUM(tot_train_only) as tot_train_only, 
-                SUM(add_train_and_hf_bus) as add_train_and_hf_bus, 
-                SUM(tot_train_and_hf_bus) as tot_train_and_hf_bus, 
-                SUM(add_train_and_bus_combo) as add_train_and_bus_combo, 
-                SUM(tot_train_and_bus_combo) as tot_train_and_bus_combo, 
-                SUM(parcels_combined) as total_parcels,
-                SUM(area_sqft) as total_area_sqft,
-                SUM(parcels_mf_zoned) as parcels_mf_zoned,
-                SUM(area_mf_zoned) as area_mf_zoned,
-                ST_Y(ST_Centroid(ANY_VALUE(center_geom))) as label_lat, 
-                ST_X(ST_Centroid(ANY_VALUE(center_geom))) as label_lon
-            FROM step5_pro_forma
-            GROUP BY neighborhood_name HAVING SUM(tot_true_sb79) > 0 OR SUM(tot_train_and_bus_combo) > 0
-        """)
-        print("✅ Persistent table 'neighborhood_results' updated successfully.")
+        t0 = time.time()
+        print("⏳ [2/4] Calculating dynamic property values and sales multipliers...", end="", flush=True)
+        with open('02_calculate_sales_ratios.sql', 'r') as f:
+            con.execute(f.read())
+        print(f" ✅ ({time.time() - t0:.1f}s)")
+
+    else:
+        print("\n🚀 Skipping spatial rebuild, applying financial filters...")
+
+    t0 = time.time()
+    print("⏳ [3/4] Executing Real Estate Pro Forma...", end="", flush=True)
+    with open('03_pro_forma.sql', 'r') as f:
+        template = Template(f.read())
+    con.execute(template.render(**config['economic_assumptions']))
+    print(f" ✅ ({time.time() - t0:.1f}s)")
+
+    t0 = time.time()
+    print("⏳ [4/4] Aggregating Neighborhood Results...", end="", flush=True)
+    with open('04_aggregate_results.sql', 'r') as f:
+        con.execute(f.read())
+    print(f" ✅ ({time.time() - t0:.1f}s)")
 
     con.close()

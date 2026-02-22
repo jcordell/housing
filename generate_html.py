@@ -1,8 +1,14 @@
 import markdown
+import yaml
 from jinja2 import Template
+
+def load_config():
+    with open('config.yaml', 'r') as f:
+        return yaml.safe_load(f)
 
 def build_website(template_data, map_html):
     print("Compiling Markdown and HTML...")
+    config = load_config()
 
     markdown_content = """# Proposal for a TOD Amendment to the BUILD Act
 
@@ -11,7 +17,7 @@ Illinois is facing a severe housing shortage. Governor Pritzker’s proposed BUI
 This proposal analyzes adding a Transit-Oriented Development (TOD) amendment similar to California's recently passed SB79.
 
 ## The "Missing Middle" in High-Cost Areas
-We analyzed the Zillow Observed Rent Index (ZORI) to identify Chicago's top 15 neighborhoods experiencing the most extreme 5-year rent spikes. Under the base BUILD Act, only **{{ pct_pritzker }}%** of new citywide housing capacity falls within these critical high-cost areas, despite them comprising **{{ pct_top15_area }}%** of the city's residential land.
+We analyzed the Zillow Observed Rent Index (ZORI) to identify Chicago's top 15 neighborhoods experiencing the most extreme rent spikes. Under the base BUILD Act, only **{{ pct_pritzker }}%** of new citywide housing capacity falls within these critical high-cost areas, despite them comprising **{{ pct_top15_area }}%** of the city's residential land.
 
 Why? Because the most desirable, walkable neighborhoods in Chicago are desirable *because* they are already dense.
 
@@ -71,7 +77,7 @@ We calculated the following housing capacity increases for each proposal:
 *Map looks best on desktop.*
 """
 
-    with open('article.md', 'w') as f:
+    with open(config['files']['output_article_md'], 'w') as f:
         f.write(markdown_content)
 
     jinja_template = Template(markdown_content)
@@ -117,7 +123,7 @@ We calculated the following housing capacity increases for each proposal:
     </body>
     </html>
     """
-    output_file = "index.html"
+    output_file = config['files']['output_index_html']
     with open(output_file, 'w') as f:
         f.write(final_html)
 

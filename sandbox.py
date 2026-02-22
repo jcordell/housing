@@ -1,22 +1,24 @@
 import duckdb
 import pandas as pd
 import time
-from financial_model import run_spatial_pipeline
+import yaml
+from calculate_parcels import run_parcel_calculations
 
-DB_FILE = "sb79_housing.duckdb"
+def load_config():
+    with open('config.yaml', 'r') as f:
+        return yaml.safe_load(f)
 
 def run_sandbox():
     global_start = time.time()
-    con = duckdb.connect(DB_FILE)
-    con.execute("INSTALL spatial; LOAD spatial;")
-    con.execute("PRAGMA enable_progress_bar;")
 
-    print("\n🚀 Running Rapid Sandbox Analysis (Lincoln Park, Lake View, Austin, Ashburn)...")
+    config = load_config()
+    db_file = config['database']['file_name']
 
-    run_spatial_pipeline(con, is_sandbox=True)
+    run_parcel_calculations(full_recalculate=True, is_sandbox=True)
 
+    con = duckdb.connect(db_file)
     df_raw = con.execute("SELECT * FROM step5_pro_forma").df()
-    df_agg = df_raw.groupby('neighborhood_name')[['feasible_existing', 'new_pritzker', 'add_true_sb79']].sum().reset_index()
+    df_agg = df_raw.groupby('neighborhood_name')[['feasible_existing', 'new_pritzker', 'tot_true_sb79']].sum().reset_index()
 
     print(f"\n✅ Total Sandbox Runtime: {time.time() - global_start:.2f} seconds\n")
     print(df_agg.to_string(index=False))
@@ -56,9 +58,9 @@ def run_sandbox():
 
             print(f"📍 {row['neighborhood_name']} | {clean_addr} | Zone: {row['zone_class']} | Area: {row['area_sqft']:,.0f} sqft")
             print(f"   🏠 EXISTING: {row['existing_units']} units | Age: {row['building_age']} yrs | Sqft: {row['existing_sqft']} | Class: {row['primary_prop_class']}")
-            print(f"   📈 PROPOSED: {row['current_capacity']} units | Value/Unit: ${row['value_per_new_unit']:,.0f} (Rent: ${row['local_rent']:,.0f}/mo)")
+            print(f"   📈 PROPOSED: {row['current_capacity']} units | Value/Unit: ${row['value_per_new_unit']:,.0f}")
 
-            cpu = row['cost_per_unit_high_density'] if row['current_capacity'] > 6 else row['cost_per_unit_low_density']
+            cpu = row['cpu_current']
             profit_margin = row['target_profit_margin']
             total_revenue = row['current_capacity'] * row['value_per_new_unit']
             total_cost = (row['acquisition_cost'] + (row['current_capacity'] * cpu)) * profit_margin
