@@ -73,12 +73,36 @@ capacities AS (
 ),
 cost_applied AS (
     SELECT *,
-        CASE WHEN current_capacity BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN current_capacity >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_current,
-        CASE WHEN pritzker_capacity BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN pritzker_capacity >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_pritzker,
-        CASE WHEN cap_true_sb79 BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN cap_true_sb79 >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_sb79,
-        CASE WHEN cap_train_only BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN cap_train_only >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_train,
-        CASE WHEN cap_train_and_hf_bus BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN cap_train_and_hf_bus >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_hf_bus,
-        CASE WHEN cap_train_and_bus_combo BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN cap_train_and_bus_combo >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_combo
+        CASE
+            WHEN current_capacity <= 4 THEN cost_2_4_units_base + (current_capacity * 2000)
+            WHEN current_capacity <= 14 THEN cost_5_15_units_base + (current_capacity * 4000)
+            ELSE cost_15_plus_units_base + (current_capacity * 6000)
+        END as cpu_current,
+        CASE
+            WHEN pritzker_capacity <= 4 THEN cost_2_4_units_base + (pritzker_capacity * 2000)
+            WHEN pritzker_capacity <= 14 THEN cost_5_15_units_base + (pritzker_capacity * 4000)
+            ELSE cost_15_plus_units_base + (pritzker_capacity * 6000)
+        END as cpu_pritzker,
+        CASE
+            WHEN cap_true_sb79 <= 4 THEN cost_2_4_units_base + (cap_true_sb79 * 2000)
+            WHEN cap_true_sb79 <= 14 THEN cost_5_15_units_base + (cap_true_sb79 * 4000)
+            ELSE cost_15_plus_units_base + (cap_true_sb79 * 6000)
+        END as cpu_sb79,
+        CASE
+            WHEN cap_train_only <= 4 THEN cost_2_4_units_base + (cap_train_only * 2000)
+            WHEN cap_train_only <= 14 THEN cost_5_15_units_base + (cap_train_only * 4000)
+            ELSE cost_15_plus_units_base + (cap_train_only * 6000)
+        END as cpu_train,
+        CASE
+            WHEN cap_train_and_hf_bus <= 4 THEN cost_2_4_units_base + (cap_train_and_hf_bus * 2000)
+            WHEN cap_train_and_hf_bus <= 14 THEN cost_5_15_units_base + (cap_train_and_hf_bus * 4000)
+            ELSE cost_15_plus_units_base + (cap_train_and_hf_bus * 6000)
+        END as cpu_hf_bus,
+        CASE
+            WHEN cap_train_and_bus_combo <= 4 THEN cost_2_4_units_base + (cap_train_and_bus_combo * 2000)
+            WHEN cap_train_and_bus_combo <= 14 THEN cost_5_15_units_base + (cap_train_and_bus_combo * 4000)
+            ELSE cost_15_plus_units_base + (cap_train_and_bus_combo * 6000)
+        END as cpu_combo
     FROM capacities
 ),
 filtered AS (

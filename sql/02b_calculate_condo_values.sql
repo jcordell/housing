@@ -1,7 +1,7 @@
 CREATE OR REPLACE TABLE dynamic_condo_values AS
 WITH new_build_sales AS (
     SELECT
-        SUBSTR(LPAD(CAST(s.pin AS VARCHAR), 14, '0'), 1, 10) as pin10,
+        SUBSTR(REPLACE(CAST(s.pin AS VARCHAR), '-', ''), 1, 10) as pin10,
         TRY_CAST(s.sale_price AS DOUBLE) as sale_price,
         TRY_CAST(c.char_bldg_sf AS DOUBLE) as sqft,
         TRY_CAST(c.char_yrblt AS INT) as yrblt
