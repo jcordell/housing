@@ -11,25 +11,19 @@ WITH combined AS (
         COALESCE(up.existing_sqft, 0.0) as existing_sqft,
         up.prop_address,
         up.market_correction_multiplier,
-
         COALESCE(dcv.condo_price_per_sqft, {{ default_condo_price_per_sqft }}) as condo_price_per_sqft,
-
         CASE WHEN up.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE')
              THEN {{ const_cost_per_sqft_high }} ELSE {{ const_cost_per_sqft_low }} END as const_cost_per_sqft,
-
         CASE WHEN up.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE')
              THEN {{ high_cost_acq_floor_per_sqft }} ELSE {{ default_acq_floor_per_sqft }} END as acq_cost_floor_per_sqft,
-
         {{ target_profit_margin }} as target_profit_margin,
         {{ average_unit_size_sqft }} as unit_size_sqft
-
     FROM unified_properties up
     LEFT JOIN dynamic_condo_values dcv ON up.neighborhood_name = dcv.neighborhood_name
 ),
 raw_capacities AS (
     SELECT *,
         (condo_price_per_sqft * unit_size_sqft) as value_per_new_unit,
-
         CASE
             WHEN neighborhood_name IN ('ENGLEWOOD', 'WEST ENGLEWOOD', 'WOODLAWN', 'WASHINGTON PARK',
                                        'CHATHAM', 'AUBURN GRESHAM', 'SOUTH SHORE', 'ROSELAND',
@@ -41,7 +35,6 @@ raw_capacities AS (
                 area_sqft * acq_cost_floor_per_sqft
             )
         END as acq_cost,
-
         LEAST(150, FLOOR(area_sqft / 400), GREATEST(1, CASE
             WHEN zone_class LIKE 'RS-1%' OR zone_class LIKE 'RS-2%' THEN FLOOR(area_sqft / 5000)
             WHEN zone_class LIKE 'RS-3%' THEN FLOOR(area_sqft / 2500)
@@ -53,7 +46,6 @@ raw_capacities AS (
             WHEN zone_class LIKE '%-2' OR zone_class LIKE '%-3' THEN FLOOR(area_sqft / 400)
             WHEN zone_class LIKE '%-5' OR zone_class LIKE '%-6' THEN FLOOR(area_sqft / 200)
             ELSE FLOOR(area_sqft / 1000) END)) as cap_curr_raw,
-
         LEAST(150, FLOOR(area_sqft / 400), CASE WHEN zone_class SIMILAR TO '(RS|RT|RM).*' THEN CASE WHEN area_sqft < 2500 THEN 1 WHEN area_sqft < 5000 THEN 4 WHEN area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END) as cap_pritzker_raw,
         LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 OR is_brt_1320 OR hf_bus_count >= 2 THEN FLOOR((area_sqft / 43560.0) * 100) WHEN is_brt_2640 THEN FLOOR((area_sqft / 43560.0) * 80) ELSE 0 END) as cap_sb79_raw,
         LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 THEN FLOOR((area_sqft / 43560.0) * 100) ELSE 0 END) as cap_train_raw,
@@ -69,11 +61,17 @@ capacities AS (
         GREATEST(cap_curr_raw, cap_pritzker_raw, cap_train_raw) as cap_train_only,
         GREATEST(cap_curr_raw, cap_pritzker_raw, cap_hf_raw) as cap_train_hf,
         GREATEST(cap_curr_raw, cap_pritzker_raw, cap_combo_raw) as cap_train_combo,
-
         (existing_units < 40) as pass_max_units,
         (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 250000)) as pass_age_value,
         (zone_class NOT IN ('OS', 'POS', 'PMD')) as pass_zoning_class,
-        (primary_prop_class IS NOT NULL AND primary_prop_class != 'UNKNOWN' AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX') as pass_prop_class,
+        (
+            primary_prop_class IS NOT NULL
+            AND primary_prop_class NOT IN ('UNKNOWN', 'EX', '0', '1', '4', '93')
+            AND primary_prop_class NOT LIKE '0%'
+            AND primary_prop_class NOT LIKE '1%'
+            AND prop_address NOT ILIKE '%CHURCH%'
+            AND prop_address NOT ILIKE '%RELIGIOUS%'
+        ) as pass_prop_class,
         ((tot_bldg_value + tot_land_value) >= 1000) as pass_min_value,
         ((existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560) as pass_lot_density
     FROM raw_capacities
@@ -86,7 +84,6 @@ financial_metrics AS (
         (cap_train_only * unit_size_sqft) / CASE WHEN cap_train_only <= 4 THEN 0.88 WHEN cap_train_only <= 14 THEN 0.82 ELSE 0.75 END as gsf_train,
         (cap_train_hf * unit_size_sqft) / CASE WHEN cap_train_hf <= 4 THEN 0.88 WHEN cap_train_hf <= 14 THEN 0.82 ELSE 0.75 END as gsf_hf,
         (cap_train_combo * unit_size_sqft) / CASE WHEN cap_train_combo <= 4 THEN 0.88 WHEN cap_train_combo <= 14 THEN 0.82 ELSE 0.75 END as gsf_combo,
-
         (cap_curr * value_per_new_unit) as rev_curr,
         (cap_pritzker * value_per_new_unit) as rev_pritzker,
         (cap_sb79 * value_per_new_unit) as rev_sb79,
@@ -113,7 +110,6 @@ feasibility_check AS (
         rev_train - cost_train as profit_train,
         rev_hf - cost_hf as profit_hf,
         rev_combo - cost_combo as profit_combo,
-
         (rev_curr > (cost_curr * target_profit_margin)) as feas_curr,
         (rev_pritzker > (cost_pritzker * target_profit_margin)) as feas_pritzker,
         (rev_sb79 > (cost_sb79 * target_profit_margin)) as feas_sb79,
@@ -126,7 +122,6 @@ hbu_waterfall AS (
     SELECT *,
         CASE WHEN feas_curr AND cap_curr > existing_units AND cap_curr >= (GREATEST(existing_units, 1.0) * 2.0) THEN cap_curr ELSE 0 END as yield_curr,
         CASE WHEN feas_curr AND cap_curr > existing_units AND cap_curr >= (GREATEST(existing_units, 1.0) * 2.0) THEN profit_curr ELSE 0 END as max_profit_curr,
-
         (cost_curr / NULLIF(cap_curr, 0)) as cpu_current,
         (cost_pritzker / NULLIF(cap_pritzker, 0)) as cpu_pritzker,
         (cost_sb79 / NULLIF(cap_sb79, 0)) as cpu_sb79
@@ -153,25 +148,20 @@ filtered_parcels AS (
         cap_curr as current_capacity, cap_pritzker as pritzker_capacity, cap_sb79 as cap_true_sb79,
         primary_prop_class, tot_bldg_value, tot_land_value, market_correction_multiplier,
         cpu_current, cpu_pritzker, cpu_sb79,
-
         pass_max_units, pass_age_value, pass_zoning_class, pass_prop_class, pass_min_value, pass_lot_density,
-
         (yield_curr >= (GREATEST(existing_units, 1.0) * 2.0)) as pass_unit_mult,
+        (cap_curr >= (GREATEST(existing_units, 1.0) * 2.0)) as pass_unit_mult_raw,
         ((yield_curr * unit_size_sqft) >= (GREATEST(existing_sqft, 1.0) * 1.25)) as pass_sqft_mult,
         feas_curr as pass_financial_existing,
-
         CASE WHEN pass_lot_density AND pass_max_units AND pass_age_value AND pass_zoning_class AND pass_prop_class AND pass_min_value THEN GREATEST(0, yield_curr - existing_units) ELSE 0 END as feasible_existing,
         CASE WHEN pass_lot_density AND pass_max_units AND pass_age_value AND pass_zoning_class AND pass_prop_class AND pass_min_value THEN GREATEST(0, yield_pritzker - GREATEST(yield_curr, existing_units)) ELSE 0 END as new_pritzker,
         CASE WHEN pass_lot_density AND pass_max_units AND pass_age_value AND pass_zoning_class AND pass_prop_class AND pass_min_value THEN GREATEST(0, yield_sb79 - GREATEST(yield_pritzker, existing_units)) ELSE 0 END as add_true_sb79,
         CASE WHEN pass_lot_density AND pass_max_units AND pass_age_value AND pass_zoning_class AND pass_prop_class AND pass_min_value THEN GREATEST(0, yield_train - GREATEST(yield_pritzker, existing_units)) ELSE 0 END as add_train_only,
         CASE WHEN pass_lot_density AND pass_max_units AND pass_age_value AND pass_zoning_class AND pass_prop_class AND pass_min_value THEN GREATEST(0, yield_hf - GREATEST(yield_pritzker, existing_units)) ELSE 0 END as add_train_and_hf_bus,
         CASE WHEN pass_lot_density AND pass_max_units AND pass_age_value AND pass_zoning_class AND pass_prop_class AND pass_min_value THEN GREATEST(0, yield_combo - GREATEST(yield_pritzker, existing_units)) ELSE 0 END as add_train_and_bus_combo,
-
         CASE WHEN zone_class LIKE 'RM-%' OR zone_class LIKE 'RT-%' THEN parcels_combined ELSE 0 END as parcels_mf_zoned,
         CASE WHEN zone_class LIKE 'RM-%' OR zone_class LIKE 'RT-%' THEN area_sqft ELSE 0 END as area_mf_zoned,
-
         yield_curr, yield_pritzker, yield_sb79
-
     FROM final_yields
 )
 SELECT *,
