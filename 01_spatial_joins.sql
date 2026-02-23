@@ -1,7 +1,7 @@
 CREATE OR REPLACE TABLE spatial_base AS
 WITH nbhds AS (
     SELECT geom, ST_Transform(geom, 'EPSG:4326', 'EPSG:3435', true) as geom_3435, UPPER(community) as neighborhood_name
-    FROM ST_Read('neighborhoods.geojson')
+    FROM ST_Read('data/neighborhoods.geojson')
     {% if is_sandbox %}
     WHERE UPPER(community) IN ('LINCOLN PARK', 'LAKE VIEW', 'ASHBURN', 'AUSTIN')
     {% endif %}
