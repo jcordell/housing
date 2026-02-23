@@ -17,13 +17,12 @@ WITH combined AS (
         CASE WHEN up.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE')
              THEN {{ high_cost_acq_floor_per_sqft }} ELSE {{ default_acq_floor_per_sqft }} END as acq_cost_floor_per_sqft,
         {{ target_profit_margin }} as target_profit_margin,
-        {{ average_unit_size_sqft }} as unit_size_sqft
+        {{ min_unit_size_sqft }} as min_unit_size_sqft
     FROM unified_properties up
     LEFT JOIN dynamic_condo_values dcv ON up.neighborhood_name = dcv.neighborhood_name
 ),
 raw_capacities AS (
     SELECT *,
-        (condo_price_per_sqft * unit_size_sqft) as value_per_new_unit,
         CASE
             WHEN neighborhood_name IN ('ENGLEWOOD', 'WEST ENGLEWOOD', 'WOODLAWN', 'WASHINGTON PARK',
                                        'CHATHAM', 'AUBURN GRESHAM', 'SOUTH SHORE', 'ROSELAND',
@@ -67,7 +66,7 @@ capacities AS (
         (
             primary_prop_class IS NOT NULL
             AND primary_prop_class NOT IN ('UNKNOWN', 'EX', '0', '1', '4', '93')
-            AND primary_prop_class NOT LIKE '299%' -- Added check for secondary condo pins
+            AND primary_prop_class NOT LIKE '299%'
             AND primary_prop_class NOT LIKE '0%'
             AND primary_prop_class NOT LIKE '1%'
             AND prop_address NOT ILIKE '%CHURCH%'
@@ -79,19 +78,37 @@ capacities AS (
 ),
 financial_metrics AS (
     SELECT *,
-        (cap_curr * unit_size_sqft) / CASE WHEN cap_curr <= 4 THEN 0.88 WHEN cap_curr <= 14 THEN 0.82 ELSE 0.75 END as gsf_curr,
-        (cap_pritzker * unit_size_sqft) / CASE WHEN cap_pritzker <= 4 THEN 0.88 WHEN cap_pritzker <= 14 THEN 0.82 ELSE 0.75 END as gsf_pritzker,
-        (cap_sb79 * unit_size_sqft) / CASE WHEN cap_sb79 <= 4 THEN 0.88 WHEN cap_sb79 <= 14 THEN 0.82 ELSE 0.75 END as gsf_sb79,
-        (cap_train_only * unit_size_sqft) / CASE WHEN cap_train_only <= 4 THEN 0.88 WHEN cap_train_only <= 14 THEN 0.82 ELSE 0.75 END as gsf_train,
-        (cap_train_hf * unit_size_sqft) / CASE WHEN cap_train_hf <= 4 THEN 0.88 WHEN cap_train_hf <= 14 THEN 0.82 ELSE 0.75 END as gsf_hf,
-        (cap_train_combo * unit_size_sqft) / CASE WHEN cap_train_combo <= 4 THEN 0.88 WHEN cap_train_combo <= 14 THEN 0.82 ELSE 0.75 END as gsf_combo,
-        (cap_curr * value_per_new_unit) as rev_curr,
-        (cap_pritzker * value_per_new_unit) as rev_pritzker,
-        (cap_sb79 * value_per_new_unit) as rev_sb79,
-        (cap_train_only * value_per_new_unit) as rev_train,
-        (cap_train_hf * value_per_new_unit) as rev_hf,
-        (cap_train_combo * value_per_new_unit) as rev_combo
+        (area_sqft * {{ far_current }}) as gsf_curr,
+        (area_sqft * {{ far_pritzker }}) as gsf_pritzker,
+        (area_sqft * {{ far_sb79 }}) as gsf_sb79,
+        (area_sqft * {{ far_train }}) as gsf_train,
+        (area_sqft * {{ far_hf }}) as gsf_hf,
+        (area_sqft * {{ far_combo }}) as gsf_combo,
+
+        ((area_sqft * {{ far_current }}) * {{ efficiency_factor }}) as nra_curr,
+        ((area_sqft * {{ far_pritzker }}) * {{ efficiency_factor }}) as nra_pritzker,
+        ((area_sqft * {{ far_sb79 }}) * {{ efficiency_factor }}) as nra_sb79,
+        ((area_sqft * {{ far_train }}) * {{ efficiency_factor }}) as nra_train,
+        ((area_sqft * {{ far_hf }}) * {{ efficiency_factor }}) as nra_hf,
+        ((area_sqft * {{ far_combo }}) * {{ efficiency_factor }}) as nra_combo
     FROM capacities
+),
+revenue_metrics AS (
+    SELECT *,
+        (nra_curr * condo_price_per_sqft) as rev_curr,
+        (nra_pritzker * condo_price_per_sqft) as rev_pritzker,
+        (nra_sb79 * condo_price_per_sqft) as rev_sb79,
+        (nra_train * condo_price_per_sqft) as rev_train,
+        (nra_hf * condo_price_per_sqft) as rev_hf,
+        (nra_combo * condo_price_per_sqft) as rev_combo,
+
+        LEAST(cap_curr, FLOOR(nra_curr / min_unit_size_sqft)) as final_cap_curr,
+        LEAST(cap_pritzker, FLOOR(nra_pritzker / min_unit_size_sqft)) as final_cap_pritzker,
+        LEAST(cap_sb79, FLOOR(nra_sb79 / min_unit_size_sqft)) as final_cap_sb79,
+        LEAST(cap_train_only, FLOOR(nra_train / min_unit_size_sqft)) as final_cap_train,
+        LEAST(cap_train_hf, FLOOR(nra_hf / min_unit_size_sqft)) as final_cap_hf,
+        LEAST(cap_train_combo, FLOOR(nra_combo / min_unit_size_sqft)) as final_cap_combo
+    FROM financial_metrics
 ),
 profit_eval AS (
     SELECT *,
@@ -101,7 +118,7 @@ profit_eval AS (
         acq_cost + (gsf_train * const_cost_per_sqft) as cost_train,
         acq_cost + (gsf_hf * const_cost_per_sqft) as cost_hf,
         acq_cost + (gsf_combo * const_cost_per_sqft) as cost_combo
-    FROM financial_metrics
+    FROM revenue_metrics
 ),
 feasibility_check AS (
     SELECT *,
@@ -121,38 +138,40 @@ feasibility_check AS (
 ),
 hbu_waterfall AS (
     SELECT *,
-        CASE WHEN feas_curr AND cap_curr > existing_units AND cap_curr >= (GREATEST(existing_units, 1.0) * 2.0) THEN cap_curr ELSE 0 END as yield_curr,
-        CASE WHEN feas_curr AND cap_curr > existing_units AND cap_curr >= (GREATEST(existing_units, 1.0) * 2.0) THEN profit_curr ELSE 0 END as max_profit_curr,
-        (cost_curr / NULLIF(cap_curr, 0)) as cpu_current,
-        (cost_pritzker / NULLIF(cap_pritzker, 0)) as cpu_pritzker,
-        (cost_sb79 / NULLIF(cap_sb79, 0)) as cpu_sb79
+        CASE WHEN feas_curr AND final_cap_curr > existing_units AND final_cap_curr >= (GREATEST(existing_units, 1.0) * 2.0) THEN final_cap_curr ELSE 0 END as yield_curr,
+        CASE WHEN feas_curr AND final_cap_curr > existing_units AND final_cap_curr >= (GREATEST(existing_units, 1.0) * 2.0) THEN profit_curr ELSE 0 END as max_profit_curr,
+        (cost_curr / NULLIF(final_cap_curr, 0)) as cpu_current,
+        (cost_pritzker / NULLIF(final_cap_pritzker, 0)) as cpu_pritzker,
+        (cost_sb79 / NULLIF(final_cap_sb79, 0)) as cpu_sb79
     FROM feasibility_check
 ),
 ratchet_application AS (
     SELECT *,
-        CASE WHEN feas_pritzker AND cap_pritzker > existing_units AND cap_pritzker >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_pritzker > max_profit_curr THEN cap_pritzker ELSE yield_curr END as yield_pritzker,
-        CASE WHEN feas_pritzker AND cap_pritzker > existing_units AND cap_pritzker >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_pritzker > max_profit_curr THEN profit_pritzker ELSE max_profit_curr END as max_profit_pritzker
+        CASE WHEN feas_pritzker AND final_cap_pritzker > existing_units AND final_cap_pritzker >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_pritzker > max_profit_curr THEN final_cap_pritzker ELSE yield_curr END as yield_pritzker,
+        CASE WHEN feas_pritzker AND final_cap_pritzker > existing_units AND final_cap_pritzker >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_pritzker > max_profit_curr THEN profit_pritzker ELSE max_profit_curr END as max_profit_pritzker
     FROM hbu_waterfall
 ),
 final_yields AS (
     SELECT *,
-        CASE WHEN feas_sb79 AND cap_sb79 > existing_units AND cap_sb79 >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_sb79 > max_profit_pritzker THEN cap_sb79 ELSE yield_pritzker END as yield_sb79,
-        CASE WHEN feas_train AND cap_train_only > existing_units AND cap_train_only >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_train > max_profit_pritzker THEN cap_train_only ELSE yield_pritzker END as yield_train,
-        CASE WHEN feas_hf AND cap_train_hf > existing_units AND cap_train_hf >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_hf > max_profit_pritzker THEN cap_train_hf ELSE yield_pritzker END as yield_hf,
-        CASE WHEN feas_combo AND cap_train_combo > existing_units AND cap_train_combo >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_combo > max_profit_pritzker THEN cap_train_combo ELSE yield_pritzker END as yield_combo
+        CASE WHEN feas_sb79 AND final_cap_sb79 > existing_units AND final_cap_sb79 >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_sb79 > max_profit_pritzker THEN final_cap_sb79 ELSE yield_pritzker END as yield_sb79,
+        CASE WHEN feas_train AND final_cap_train > existing_units AND final_cap_train >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_train > max_profit_pritzker THEN final_cap_train ELSE yield_pritzker END as yield_train,
+        CASE WHEN feas_hf AND final_cap_hf > existing_units AND final_cap_hf >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_hf > max_profit_pritzker THEN final_cap_hf ELSE yield_pritzker END as yield_hf,
+        CASE WHEN feas_combo AND final_cap_combo > existing_units AND final_cap_combo >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_combo > max_profit_pritzker THEN final_cap_combo ELSE yield_pritzker END as yield_combo
     FROM ratchet_application
 ),
 filtered_parcels AS (
     SELECT
         center_geom, area_sqft, parcels_combined, zone_class, neighborhood_name, prop_address,
-        condo_price_per_sqft, value_per_new_unit, acq_cost as acquisition_cost, existing_units, building_age, existing_sqft,
-        cap_curr as current_capacity, cap_pritzker as pritzker_capacity, cap_sb79 as cap_true_sb79,
+        condo_price_per_sqft, acq_cost as acquisition_cost, existing_units, building_age, existing_sqft,
+        final_cap_curr as current_capacity, final_cap_pritzker as pritzker_capacity, final_cap_sb79 as cap_true_sb79,
         primary_prop_class, tot_bldg_value, tot_land_value, market_correction_multiplier,
         cpu_current, cpu_pritzker, cpu_sb79,
+        rev_curr, rev_pritzker, rev_sb79,
+        cost_curr, cost_pritzker, cost_sb79,
         pass_max_units, pass_age_value, pass_zoning_class, pass_prop_class, pass_min_value, pass_lot_density,
         (yield_curr >= (GREATEST(existing_units, 1.0) * 2.0)) as pass_unit_mult,
-        (cap_curr >= (GREATEST(existing_units, 1.0) * 2.0)) as pass_unit_mult_raw,
-        ((yield_curr * unit_size_sqft) >= (GREATEST(existing_sqft, 1.0) * 1.25)) as pass_sqft_mult,
+        (final_cap_curr >= (GREATEST(existing_units, 1.0) * 2.0)) as pass_unit_mult_raw,
+        (gsf_curr >= (GREATEST(existing_sqft, 1.0) * 1.25)) as pass_sqft_mult,
         feas_curr as pass_financial_existing,
         CASE WHEN pass_lot_density AND pass_max_units AND pass_age_value AND pass_zoning_class AND pass_prop_class AND pass_min_value THEN GREATEST(0, yield_curr - existing_units) ELSE 0 END as feasible_existing,
         CASE WHEN pass_lot_density AND pass_max_units AND pass_age_value AND pass_zoning_class AND pass_prop_class AND pass_min_value THEN GREATEST(0, yield_pritzker - GREATEST(yield_curr, existing_units)) ELSE 0 END as new_pritzker,

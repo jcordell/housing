@@ -17,7 +17,6 @@ def run_debug_metrics():
     print("1. THE FILTER FUNNEL: Separating Legality from Profitability")
     print("="*80)
 
-    # UPDATED: Using raw legal checks to prevent financial masking
     funnel_query = """
                    SELECT
                        COUNT(*) as total_parcels,
@@ -44,10 +43,6 @@ def run_debug_metrics():
     print(f"  ↳ THE APPRAISAL GAP:                  {df_funnel['fully_feasible_status_quo'][0]:,} ({(df_funnel['fully_feasible_status_quo'][0]/total)*100:.1f}%)")
     print("    (Lots both legal AND profitable to build today)")
 
-    # ---------------------------------------------------------
-    # REST OF SCRIPT REMAINS THE SAME (Sections 1B - 7)
-    # ---------------------------------------------------------
-
     print("\n" + "="*80)
     print("1B. PROPERTY TYPE DIAGNOSTICS (Diagnosing the Drop-off)")
     print("="*80)
@@ -62,7 +57,7 @@ def run_debug_metrics():
     print("2. NEIGHBORHOOD ECONOMICS: The Appraisal Gap vs. Expensive Dirt")
     print("="*80)
     econ_query = """
-                 SELECT neighborhood_name, COUNT(*) as candidate_lots, SUM(CAST(NOT pass_financial_existing AS INT)) as failed_roi_count, ROUND((SUM(CAST(NOT pass_financial_existing AS INT)) * 100.0) / COUNT(*), 1) as fail_rate_pct, CAST(MEDIAN(condo_price_per_sqft) AS INT) as med_condo_price_sqft, CAST(MEDIAN(acquisition_cost) AS INT) as med_acq_cost, CAST(MEDIAN(cpu_current * current_capacity) AS INT) as med_const_cost, CAST(MEDIAN(value_per_new_unit * current_capacity) AS INT) as med_projected_rev FROM step5_pro_forma WHERE pass_zoning_class AND pass_prop_class AND pass_min_value AND pass_age_value AND pass_max_units AND pass_unit_mult AND pass_sqft_mult AND pass_lot_density GROUP BY neighborhood_name HAVING COUNT(*) > 10 ORDER BY failed_roi_count DESC LIMIT 20 \
+                 SELECT neighborhood_name, COUNT(*) as candidate_lots, SUM(CAST(NOT pass_financial_existing AS INT)) as failed_roi_count, ROUND((SUM(CAST(NOT pass_financial_existing AS INT)) * 100.0) / COUNT(*), 1) as fail_rate_pct, CAST(MEDIAN(condo_price_per_sqft) AS INT) as med_condo_price_sqft, CAST(MEDIAN(acquisition_cost) AS INT) as med_acq_cost, CAST(MEDIAN(cost_curr - acquisition_cost) AS INT) as med_const_cost, CAST(MEDIAN(rev_curr) AS INT) as med_projected_rev FROM step5_pro_forma WHERE pass_zoning_class AND pass_prop_class AND pass_min_value AND pass_age_value AND pass_max_units AND pass_unit_mult AND pass_sqft_mult AND pass_lot_density GROUP BY neighborhood_name HAVING COUNT(*) > 10 ORDER BY failed_roi_count DESC LIMIT 20 \
                  """
     print(con.execute(econ_query).df().to_string(index=False, formatters={'med_acq_cost': '${:,.0f}'.format, 'med_const_cost': '${:,.0f}'.format, 'med_projected_rev': '${:,.0f}'.format, 'med_condo_price_sqft': '${:,.0f}'.format}))
 
@@ -86,10 +81,10 @@ def run_debug_metrics():
                        pritzker_only AS (SELECT 'Passes Pritzker Only' as scenario, * FROM step5_pro_forma WHERE feasible_existing = 0 AND new_pritzker > 0 LIMIT 3),
                        sb79_only AS (SELECT 'Passes SB79 Only' as scenario, * FROM step5_pro_forma WHERE feasible_existing = 0 AND new_pritzker = 0 AND add_true_sb79 > 0 LIMIT 3),
                        fails_all AS (SELECT 'Fails All (ROI or Physical)' as scenario, * FROM step5_pro_forma WHERE feasible_existing = 0 AND new_pritzker = 0 AND add_true_sb79 = 0 AND pass_zoning_class = true AND pass_prop_class = true LIMIT 2)
-                   SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, value_per_new_unit, acquisition_cost, cpu_current as base_construction_cost_per_unit, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM status_quo
-                   UNION ALL SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, value_per_new_unit, acquisition_cost, cpu_current, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM pritzker_only
-                   UNION ALL SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, value_per_new_unit, acquisition_cost, cpu_current, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM sb79_only
-                   UNION ALL SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, value_per_new_unit, acquisition_cost, cpu_current, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM fails_all \
+                   SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, rev_curr as base_revenue, acquisition_cost, cost_curr as base_total_cost, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM status_quo
+                   UNION ALL SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, rev_curr as base_revenue, acquisition_cost, cost_curr as base_total_cost, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM pritzker_only
+                   UNION ALL SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, rev_curr as base_revenue, acquisition_cost, cost_curr as base_total_cost, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM sb79_only
+                   UNION ALL SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, rev_curr as base_revenue, acquisition_cost, cost_curr as base_total_cost, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM fails_all \
                    """
     con.execute(sample_query).df().to_csv(sys.stdout, index=False)
 
@@ -104,7 +99,7 @@ def run_debug_metrics():
                       lv_sb79 AS (SELECT 'LV - SB79 Only' as scenario, * FROM step5_pro_forma WHERE neighborhood_name = 'LAKE VIEW' AND feasible_existing = 0 AND new_pritzker = 0 AND add_true_sb79 > 0 ORDER BY RANDOM() LIMIT 10),
                       lp_sb79 AS (SELECT 'LP - SB79 Only' as scenario, * FROM step5_pro_forma WHERE neighborhood_name = 'LINCOLN PARK' AND feasible_existing = 0 AND new_pritzker = 0 AND add_true_sb79 > 0 ORDER BY RANDOM() LIMIT 10),
                       combined_samples AS (SELECT * FROM lv_sq UNION ALL SELECT * FROM lp_sq UNION ALL SELECT * FROM lv_pritzker UNION ALL SELECT * FROM lp_pritzker UNION ALL SELECT * FROM lv_sb79 UNION ALL SELECT * FROM lp_sb79)
-                  SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, value_per_new_unit, acquisition_cost, cpu_current as base_construction_cost_per_unit, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM combined_samples \
+                  SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, rev_curr as base_revenue, acquisition_cost, cost_curr as base_total_cost, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM combined_samples \
                   """
     con.execute(lv_lp_query).df().to_csv(sys.stdout, index=False)
 
@@ -113,10 +108,10 @@ def run_debug_metrics():
     print("="*80)
     ss_query = """
                WITH ss AS (SELECT * FROM step5_pro_forma WHERE neighborhood_name IN ('ENGLEWOOD', 'WEST ENGLEWOOD', 'WOODLAWN', 'WASHINGTON PARK', 'CHATHAM', 'AUBURN GRESHAM', 'SOUTH SHORE', 'ROSELAND', 'PULLMAN', 'GREATER GRAND CROSSING', 'BRONZEVILLE', 'SOUTH CHICAGO') AND pass_zoning_class AND pass_prop_class),
-                    ss_c AS (SELECT 'SQ' as scenario, ((current_capacity * value_per_new_unit) / NULLIF(acquisition_cost + (current_capacity * cpu_current), 0)) as r, * FROM ss WHERE current_capacity > existing_units ORDER BY r DESC LIMIT 10),
-                   ss_p AS (SELECT 'PR' as scenario, ((pritzker_capacity * value_per_new_unit) / NULLIF(acquisition_cost + (pritzker_capacity * cpu_current), 0)) as r, * FROM ss WHERE pritzker_capacity > current_capacity ORDER BY r DESC LIMIT 10),
-                   ss_s AS (SELECT 'SB' as scenario, ((cap_true_sb79 * value_per_new_unit) / NULLIF(acquisition_cost + (cap_true_sb79 * cpu_current), 0)) as r, * FROM ss WHERE cap_true_sb79 > GREATEST(current_capacity, pritzker_capacity) ORDER BY r DESC LIMIT 10)
-               SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, acquisition_cost, cpu_current, value_per_new_unit, current_capacity, pritzker_capacity, cap_true_sb79, ROUND(r, 3) as raw_roi_ratio FROM (SELECT * FROM ss_c UNION ALL SELECT * FROM ss_p UNION ALL SELECT * FROM ss_s) \
+                    ss_c AS (SELECT 'SQ' as scenario, (rev_curr / NULLIF(cost_curr, 0)) as r, *, cost_curr as proj_cost, rev_curr as proj_rev FROM ss WHERE current_capacity > existing_units ORDER BY r DESC LIMIT 10),
+                   ss_p AS (SELECT 'PR' as scenario, (rev_pritzker / NULLIF(cost_pritzker, 0)) as r, *, cost_pritzker as proj_cost, rev_pritzker as proj_rev FROM ss WHERE pritzker_capacity > current_capacity ORDER BY r DESC LIMIT 10),
+                   ss_s AS (SELECT 'SB' as scenario, (rev_sb79 / NULLIF(cost_sb79, 0)) as r, *, cost_sb79 as proj_cost, rev_sb79 as proj_rev FROM ss WHERE cap_true_sb79 > GREATEST(current_capacity, pritzker_capacity) ORDER BY r DESC LIMIT 10)
+               SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, acquisition_cost, proj_cost, proj_rev, current_capacity, pritzker_capacity, cap_true_sb79, ROUND(r, 3) as raw_roi_ratio FROM (SELECT * FROM ss_c UNION ALL SELECT * FROM ss_p UNION ALL SELECT * FROM ss_s) \
                """
     print(con.execute(ss_query).df().to_csv(sys.stdout, index=False))
     con.close()

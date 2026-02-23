@@ -13,12 +13,20 @@ CHICAGO_SALES_MULTIPLIERS = {
 }
 DEFAULT_SALES_MULTIPLIER = 1.40
 
-def get_financial_filter_ctes(source_table_name, unit_sqft, margin):
+def get_financial_filter_ctes(source_table_name, eco):
+    margin = eco.get('target_profit_margin', 1.15)
+    far_curr = eco.get('far_current', 1.2)
+    far_pritzker = eco.get('far_pritzker', 1.5)
+    far_sb79 = eco.get('far_sb79', 3.0)
+    far_train = eco.get('far_train', 3.0)
+    far_hf = eco.get('far_hf', 2.5)
+    far_combo = eco.get('far_combo', 2.5)
+    eff = eco.get('efficiency_factor', 0.82)
+    min_unit = eco.get('min_unit_size_sqft', 750.0)
+
     return f"""
         base_capacities AS (
             SELECT *,
-                (condo_price_per_sqft * {unit_sqft}) as value_per_new_unit,
-                
                 CASE 
                     WHEN neighborhood_name IN ('ENGLEWOOD', 'WEST ENGLEWOOD', 'WOODLAWN', 'WASHINGTON PARK', 
                                                'CHATHAM', 'AUBURN GRESHAM', 'SOUTH SHORE', 'ROSELAND', 
@@ -74,24 +82,41 @@ def get_financial_filter_ctes(source_table_name, unit_sqft, margin):
                 ) as pass_prop_class,
                 ((tot_bldg_value + tot_land_value) >= 1000) as pass_min_value,
                 ((existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560) as pass_lot_density
-            FROM raw_capacities
+            FROM base_capacities
         ),
         financial_metrics AS (
             SELECT *,
-                (cap_curr * {unit_sqft}) / CASE WHEN cap_curr <= 4 THEN 0.88 WHEN cap_curr <= 14 THEN 0.82 ELSE 0.75 END as gsf_curr,
-                (cap_pritzker * {unit_sqft}) / CASE WHEN cap_pritzker <= 4 THEN 0.88 WHEN cap_pritzker <= 14 THEN 0.82 ELSE 0.75 END as gsf_pritzker,
-                (cap_sb79 * {unit_sqft}) / CASE WHEN cap_sb79 <= 4 THEN 0.88 WHEN cap_sb79 <= 14 THEN 0.82 ELSE 0.75 END as gsf_sb79,
-                (cap_train_only * {unit_sqft}) / CASE WHEN cap_train_only <= 4 THEN 0.88 WHEN cap_train_only <= 14 THEN 0.82 ELSE 0.75 END as gsf_train,
-                (cap_train_hf * {unit_sqft}) / CASE WHEN cap_train_hf <= 4 THEN 0.88 WHEN cap_train_hf <= 14 THEN 0.82 ELSE 0.75 END as gsf_hf,
-                (cap_train_combo * {unit_sqft}) / CASE WHEN cap_train_combo <= 4 THEN 0.88 WHEN cap_train_combo <= 14 THEN 0.82 ELSE 0.75 END as gsf_combo,
+                (area_sqft * {far_curr}) as gsf_curr,
+                (area_sqft * {far_pritzker}) as gsf_pritzker,
+                (area_sqft * {far_sb79}) as gsf_sb79,
+                (area_sqft * {far_train}) as gsf_train,
+                (area_sqft * {far_hf}) as gsf_hf,
+                (area_sqft * {far_combo}) as gsf_combo,
 
-                (cap_curr * value_per_new_unit) as rev_curr,
-                (cap_pritzker * value_per_new_unit) as rev_pritzker,
-                (cap_sb79 * value_per_new_unit) as rev_sb79,
-                (cap_train_only * value_per_new_unit) as rev_train,
-                (cap_train_hf * value_per_new_unit) as rev_hf,
-                (cap_train_combo * value_per_new_unit) as rev_combo
+                ((area_sqft * {far_curr}) * {eff}) as nra_curr,
+                ((area_sqft * {far_pritzker}) * {eff}) as nra_pritzker,
+                ((area_sqft * {far_sb79}) * {eff}) as nra_sb79,
+                ((area_sqft * {far_train}) * {eff}) as nra_train,
+                ((area_sqft * {far_hf}) * {eff}) as nra_hf,
+                ((area_sqft * {far_combo}) * {eff}) as nra_combo
             FROM capacities
+        ),
+        revenue_metrics AS (
+            SELECT *,
+                (nra_curr * condo_price_per_sqft) as rev_curr,
+                (nra_pritzker * condo_price_per_sqft) as rev_pritzker,
+                (nra_sb79 * condo_price_per_sqft) as rev_sb79,
+                (nra_train * condo_price_per_sqft) as rev_train,
+                (nra_hf * condo_price_per_sqft) as rev_hf,
+                (nra_combo * condo_price_per_sqft) as rev_combo,
+                
+                LEAST(cap_curr, FLOOR(nra_curr / {min_unit})) as final_cap_curr,
+                LEAST(cap_pritzker, FLOOR(nra_pritzker / {min_unit})) as final_cap_pritzker,
+                LEAST(cap_sb79, FLOOR(nra_sb79 / {min_unit})) as final_cap_sb79,
+                LEAST(cap_train_only, FLOOR(nra_train / {min_unit})) as final_cap_train,
+                LEAST(cap_train_hf, FLOOR(nra_hf / {min_unit})) as final_cap_hf,
+                LEAST(cap_train_combo, FLOOR(nra_combo / {min_unit})) as final_cap_combo
+            FROM financial_metrics
         ),
         profit_eval AS (
             SELECT *,
@@ -101,7 +126,7 @@ def get_financial_filter_ctes(source_table_name, unit_sqft, margin):
                 acq_cost + (gsf_train * const_cost_per_sqft) as cost_train,
                 acq_cost + (gsf_hf * const_cost_per_sqft) as cost_hf,
                 acq_cost + (gsf_combo * const_cost_per_sqft) as cost_combo
-            FROM financial_metrics
+            FROM revenue_metrics
         ),
         feasibility_check AS (
             SELECT *,
@@ -122,39 +147,41 @@ def get_financial_filter_ctes(source_table_name, unit_sqft, margin):
         ),
         hbu_waterfall AS (
             SELECT *,
-                CASE WHEN feas_curr AND cap_curr > existing_units AND cap_curr >= (GREATEST(existing_units, 1.0) * 2.0) THEN cap_curr ELSE 0 END as yield_curr,
-                CASE WHEN feas_curr AND cap_curr > existing_units AND cap_curr >= (GREATEST(existing_units, 1.0) * 2.0) THEN profit_curr ELSE 0 END as max_profit_curr,
+                CASE WHEN feas_curr AND final_cap_curr > existing_units AND final_cap_curr >= (GREATEST(existing_units, 1.0) * 2.0) THEN final_cap_curr ELSE 0 END as yield_curr,
+                CASE WHEN feas_curr AND final_cap_curr > existing_units AND final_cap_curr >= (GREATEST(existing_units, 1.0) * 2.0) THEN profit_curr ELSE 0 END as max_profit_curr,
                 
-                (cost_curr / NULLIF(cap_curr, 0)) as cpu_current,
-                (cost_pritzker / NULLIF(cap_pritzker, 0)) as cpu_pritzker,
-                (cost_sb79 / NULLIF(cap_sb79, 0)) as cpu_sb79
+                (cost_curr / NULLIF(final_cap_curr, 0)) as cpu_current,
+                (cost_pritzker / NULLIF(final_cap_pritzker, 0)) as cpu_pritzker,
+                (cost_sb79 / NULLIF(final_cap_sb79, 0)) as cpu_sb79
             FROM feasibility_check
         ),
         ratchet_application AS (
             SELECT *,
-                CASE WHEN feas_pritzker AND cap_pritzker > existing_units AND cap_pritzker >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_pritzker > max_profit_curr THEN cap_pritzker ELSE yield_curr END as yield_pritzker,
-                CASE WHEN feas_pritzker AND cap_pritzker > existing_units AND cap_pritzker >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_pritzker > max_profit_curr THEN profit_pritzker ELSE max_profit_curr END as max_profit_pritzker
+                CASE WHEN feas_pritzker AND final_cap_pritzker > existing_units AND final_cap_pritzker >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_pritzker > max_profit_curr THEN final_cap_pritzker ELSE yield_curr END as yield_pritzker,
+                CASE WHEN feas_pritzker AND final_cap_pritzker > existing_units AND final_cap_pritzker >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_pritzker > max_profit_curr THEN profit_pritzker ELSE max_profit_curr END as max_profit_pritzker
             FROM hbu_waterfall
         ),
         final_yields AS (
             SELECT *,
-                CASE WHEN feas_sb79 AND cap_sb79 > existing_units AND cap_sb79 >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_sb79 > max_profit_pritzker THEN cap_sb79 ELSE yield_pritzker END as yield_sb79,
-                CASE WHEN feas_train AND cap_train_only > existing_units AND cap_train_only >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_train > max_profit_pritzker THEN cap_train_only ELSE yield_pritzker END as yield_train,
-                CASE WHEN feas_hf AND cap_train_hf > existing_units AND cap_train_hf >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_hf > max_profit_pritzker THEN cap_train_hf ELSE yield_pritzker END as yield_hf,
-                CASE WHEN feas_combo AND cap_train_combo > existing_units AND cap_train_combo >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_combo > max_profit_pritzker THEN cap_train_combo ELSE yield_pritzker END as yield_combo
+                CASE WHEN feas_sb79 AND final_cap_sb79 > existing_units AND final_cap_sb79 >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_sb79 > max_profit_pritzker THEN final_cap_sb79 ELSE yield_pritzker END as yield_sb79,
+                CASE WHEN feas_train AND final_cap_train > existing_units AND final_cap_train >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_train > max_profit_pritzker THEN final_cap_train ELSE yield_pritzker END as yield_train,
+                CASE WHEN feas_hf AND final_cap_hf > existing_units AND final_cap_hf >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_hf > max_profit_pritzker THEN final_cap_hf ELSE yield_pritzker END as yield_hf,
+                CASE WHEN feas_combo AND final_cap_combo > existing_units AND final_cap_combo >= (GREATEST(existing_units, 1.0) * 2.0) AND profit_combo > max_profit_pritzker THEN final_cap_combo ELSE yield_pritzker END as yield_combo
             FROM ratchet_application
         ),
         filtered_parcels AS (
             SELECT 
                 center_geom, area_sqft, parcels_combined, zone_class, neighborhood_name, prop_address,
-                condo_price_per_sqft, value_per_new_unit, acq_cost as acquisition_cost, existing_units, building_age, existing_sqft,
-                cap_curr as current_capacity, primary_prop_class, tot_bldg_value, tot_land_value, market_correction_multiplier,
+                condo_price_per_sqft, acq_cost as acquisition_cost, existing_units, building_age, existing_sqft,
+                final_cap_curr as current_capacity, primary_prop_class, tot_bldg_value, tot_land_value, market_correction_multiplier,
                 cpu_current, cpu_pritzker, cpu_sb79,
+                rev_curr, rev_pritzker, rev_sb79,
+                cost_curr, cost_pritzker, cost_sb79,
                 
                 pass_max_units, pass_age_value, pass_zoning_class, pass_prop_class, pass_min_value, pass_lot_density,
                 
                 (yield_curr >= (GREATEST(existing_units, 1.0) * 2.0)) as pass_unit_mult,
-                ((yield_curr * {unit_sqft}) >= (GREATEST(existing_sqft, 1.0) * 1.25)) as pass_sqft_mult,
+                (gsf_curr >= (GREATEST(existing_sqft, 1.0) * 1.25)) as pass_sqft_mult,
                 feas_curr as pass_financial_existing,
                 
                 CASE WHEN pass_lot_density AND pass_max_units AND pass_age_value AND pass_zoning_class AND pass_prop_class AND pass_min_value THEN GREATEST(0, yield_curr - existing_units) ELSE 0 END as feasible_existing,
@@ -176,13 +203,6 @@ def get_financial_filter_ctes(source_table_name, unit_sqft, margin):
 def run_spatial_pipeline(con, is_sandbox=False):
     config = load_config()
     eco = config.get('economic_assumptions', {})
-    margin = eco.get('target_profit_margin', 1.15)
-    unit_sqft = eco.get('average_unit_size_sqft', 1000.0)
-    def_condo = eco.get('default_condo_price_per_sqft', 350.0)
-    cost_high = eco.get('const_cost_per_sqft_high', 300.0)
-    cost_low = eco.get('const_cost_per_sqft_low', 240.0)
-    acq_high = eco.get('high_cost_acq_floor_per_sqft', 100.0)
-    acq_low = eco.get('default_acq_floor_per_sqft', 20.0)
 
     t0 = time.time()
     if is_sandbox:
@@ -358,6 +378,12 @@ def run_spatial_pipeline(con, is_sandbox=False):
     t0 = time.time()
     print("⏳ [5/5] Executing Real Estate Pro Forma equations...", end="", flush=True)
 
+    def_condo = eco.get('default_condo_price_per_sqft', 350.0)
+    cost_high = eco.get('const_cost_per_sqft_high', 300.0)
+    cost_low = eco.get('const_cost_per_sqft_low', 240.0)
+    acq_high = eco.get('high_cost_acq_floor_per_sqft', 100.0)
+    acq_low = eco.get('default_acq_floor_per_sqft', 20.0)
+
     con.execute(f"""
         CREATE OR REPLACE TEMPORARY TABLE step5_pro_forma_base AS
         SELECT pd.geom_3435 as center_geom, pd.neighborhood_name, pd.area_sqft, pd.zone_class, 1 as parcels_combined, 
@@ -393,7 +419,7 @@ def run_spatial_pipeline(con, is_sandbox=False):
             END
     """)
 
-    financial_ctes = get_financial_filter_ctes("step5_pro_forma_base", unit_sqft, margin)
+    financial_ctes = get_financial_filter_ctes("step5_pro_forma_base", eco)
     con.execute(f"""
         CREATE OR REPLACE TEMPORARY TABLE step5_pro_forma AS 
         WITH {financial_ctes} 

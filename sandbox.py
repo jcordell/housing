@@ -20,10 +20,10 @@ def run_sandbox():
     con = duckdb.connect(db_file)
     df_raw = con.execute("SELECT * FROM step5_pro_forma").df()
 
-    # Pre-calculate individual ROIs for diagnostics
-    df_raw['roi_curr'] = df_raw['value_per_new_unit'] / df_raw['cpu_current'].replace(0, float('inf'))
-    df_raw['roi_pritzker'] = df_raw['value_per_new_unit'] / df_raw['cpu_pritzker'].replace(0, float('inf'))
-    df_raw['roi_sb79'] = df_raw['value_per_new_unit'] / df_raw['cpu_sb79'].replace(0, float('inf'))
+    # Pre-calculate individual ROIs for diagnostics using actual total revenue/cost
+    df_raw['roi_curr'] = df_raw['rev_curr'] / df_raw['cost_curr'].replace(0, float('inf'))
+    df_raw['roi_pritzker'] = df_raw['rev_pritzker'] / df_raw['cost_pritzker'].replace(0, float('inf'))
+    df_raw['roi_sb79'] = df_raw['rev_sb79'] / df_raw['cost_sb79'].replace(0, float('inf'))
 
     print(f"\n✅ Total Sandbox Runtime: {time.time() - global_start:.2f} seconds\n")
 

@@ -130,13 +130,13 @@ def run_west_elsdon_debug():
     recent_new_sales AS (
         SELECT s.pin, TRY_CAST(s.sale_price AS DOUBLE) as sale_price, s.sale_date, f.sqft, f.yrblt, 'Flat (211/212)' as prop_type
         FROM parcel_sales s JOIN flat_characteristics f ON s.pin = f.pin
-        WHERE s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR AND f.yrblt >= 2005 AND f.sqft > 400 AND TRY_CAST(s.sale_price AS DOUBLE) > 50000
+        WHERE s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR AND f.yrblt >= 2018 AND f.sqft > 400 AND TRY_CAST(s.sale_price AS DOUBLE) > 50000
 
         UNION ALL
 
         SELECT s.pin, TRY_CAST(s.sale_price AS DOUBLE) as sale_price, s.sale_date, c.sqft, c.yrblt, 'Condo (299)' as prop_type
         FROM parcel_sales s JOIN condo_chars_clean c ON s.pin = c.pin
-        WHERE s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR AND c.yrblt >= 2005 AND c.sqft > 400 AND TRY_CAST(s.sale_price AS DOUBLE) > 50000
+        WHERE s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR AND c.yrblt >= 2018 AND c.sqft > 400 AND TRY_CAST(s.sale_price AS DOUBLE) > 50000
     )
     SELECT
         COALESCE(pa.prop_address_full, rns.pin) as address,

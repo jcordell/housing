@@ -24,7 +24,7 @@ recent_new_sales AS (
     FROM parcel_sales s
     JOIN flat_characteristics f ON s.pin = f.pin
     WHERE s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR
-      AND f.yrblt >= 2005
+      AND f.yrblt >= 2018
       AND f.sqft > 400
       AND TRY_CAST(s.sale_price AS DOUBLE) > 50000
       AND s.is_multisale = FALSE -- FIX 1: Filter out bulk/multi-parcel sales
@@ -38,7 +38,7 @@ recent_new_sales AS (
     FROM parcel_sales s
     JOIN condo_chars_clean c ON s.pin = c.pin
     WHERE s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR
-      AND c.yrblt >= 2005
+      AND c.yrblt >= 2018
       AND c.sqft > 400
       AND TRY_CAST(s.sale_price AS DOUBLE) > 50000
       AND s.is_multisale = FALSE -- FIX 1: Filter out bulk/multi-parcel sales
