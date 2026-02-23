@@ -67,6 +67,7 @@ capacities AS (
         (
             primary_prop_class IS NOT NULL
             AND primary_prop_class NOT IN ('UNKNOWN', 'EX', '0', '1', '4', '93')
+            AND primary_prop_class NOT LIKE '299%' -- Added check for secondary condo pins
             AND primary_prop_class NOT LIKE '0%'
             AND primary_prop_class NOT LIKE '1%'
             AND prop_address NOT ILIKE '%CHURCH%'

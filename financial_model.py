@@ -62,7 +62,16 @@ def get_financial_filter_ctes(source_table_name, unit_sqft, margin):
                 (existing_units < 40) as pass_max_units,
                 (building_age >= 35 OR (building_age = 0 AND tot_bldg_value < 250000)) as pass_age_value,
                 (zone_class NOT IN ('OS', 'POS', 'PMD')) as pass_zoning_class,
-                (primary_prop_class IS NOT NULL AND primary_prop_class != 'UNKNOWN' AND primary_prop_class NOT LIKE '299%' AND primary_prop_class NOT LIKE '599%' AND primary_prop_class NOT LIKE '8%' AND primary_prop_class != 'EX') as pass_prop_class,
+                (
+                    primary_prop_class IS NOT NULL 
+                    AND primary_prop_class != 'UNKNOWN'
+                    AND primary_prop_class != 'EX'      -- Exclude Exempt (Churches/Gov)
+                    AND primary_prop_class != '299'     -- EXCLUDE CONDOS (Primary)
+                    AND primary_prop_class NOT LIKE '299%' -- EXCLUDE CONDOS (Secondary)
+                    AND primary_prop_class NOT LIKE '599%' -- Exclude Commercial Condos
+                    AND primary_prop_class NOT LIKE '8%'   -- Exclude most Large/Specialized
+                    AND primary_prop_class != '0'       -- Exclude Rail/Public Right of Way
+                ) as pass_prop_class,
                 ((tot_bldg_value + tot_land_value) >= 1000) as pass_min_value,
                 ((existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560) as pass_lot_density
             FROM raw_capacities
