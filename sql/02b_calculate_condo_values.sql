@@ -27,7 +27,7 @@ recent_new_sales AS (
       AND f.yrblt >= 2018
       AND f.sqft > 400
       AND TRY_CAST(s.sale_price AS DOUBLE) > 50000
-      AND s.is_multisale = FALSE -- FIX 1: Filter out bulk/multi-parcel sales
+      AND s.is_multisale = FALSE
 
     UNION ALL
 
@@ -41,7 +41,7 @@ recent_new_sales AS (
       AND c.yrblt >= 2018
       AND c.sqft > 400
       AND TRY_CAST(s.sale_price AS DOUBLE) > 50000
-      AND s.is_multisale = FALSE -- FIX 1: Filter out bulk/multi-parcel sales
+      AND s.is_multisale = FALSE
 ),
 filtered_sales AS (
     SELECT
@@ -54,11 +54,11 @@ filtered_sales AS (
 neighborhood_medians AS (
     SELECT
         neighborhood_name,
-        MEDIAN(sale_price / sqft) as condo_price_per_sqft
+        QUANTILE_CONT(sale_price / sqft, 0.80) as condo_price_per_sqft
     FROM filtered_sales
     WHERE (sale_price / sqft) BETWEEN 100 AND 1200
     GROUP BY neighborhood_name
-    HAVING COUNT(*) >= 10 -- FIX 2: Require 10 sales to trust neighborhood median
+    HAVING COUNT(*) >= 10
 ),
 region_mapping AS (
     SELECT
@@ -81,21 +81,63 @@ sales_with_region AS (
 region_medians AS (
     SELECT
         region,
-        MEDIAN(price_per_sqft) as region_median
+        QUANTILE_CONT(price_per_sqft, 0.80) as region_median
     FROM sales_with_region
     WHERE price_per_sqft BETWEEN 100 AND 1200
     GROUP BY region
 ),
 citywide AS (
-    SELECT MEDIAN(sale_price / sqft) as city_median
+    SELECT QUANTILE_CONT(sale_price / sqft, 0.80) as city_median
     FROM filtered_sales
     WHERE (sale_price / sqft) BETWEEN 100 AND 1200
+),
+recent_all_sales AS (
+    SELECT
+        SUBSTR(REPLACE(CAST(s.pin AS VARCHAR), '-', ''), 1, 10) as pin10,
+        MAX(TRY_CAST(s.sale_price AS DOUBLE)) as sale_price
+    FROM parcel_sales s
+    JOIN assessor_universe au ON SUBSTR(REPLACE(CAST(s.pin AS VARCHAR), '-', ''), 1, 10) = SUBSTR(LPAD(CAST(au.pin AS VARCHAR), 14, '0'), 1, 10)
+    WHERE s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR
+      AND TRY_CAST(s.sale_price AS DOUBLE) > 20000
+      AND s.is_multisale = FALSE
+      AND CAST(au.class AS VARCHAR) IN ('202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '212', '213', '214')
+    GROUP BY 1
+),
+sales_with_area AS (
+    SELECT
+        sb.neighborhood_name,
+        rs.sale_price / sb.area_sqft as price_per_sqft_land
+    FROM recent_all_sales rs
+    JOIN (SELECT pin10, MAX(neighborhood_name) as neighborhood_name, MAX(area_sqft) as area_sqft FROM spatial_base GROUP BY pin10) sb ON rs.pin10 = sb.pin10
+    WHERE sb.area_sqft > 500
+),
+floor_neighborhood AS (
+    SELECT
+        neighborhood_name,
+        QUANTILE_CONT(price_per_sqft_land, 0.05) as acq_cost_floor_per_sqft
+    FROM sales_with_area
+    GROUP BY neighborhood_name
+    HAVING COUNT(*) >= 10
+),
+floor_region AS (
+    SELECT r.region, QUANTILE_CONT(s.price_per_sqft_land, 0.25) as acq_cost_floor_per_sqft
+    FROM sales_with_area s
+    JOIN region_mapping r ON s.neighborhood_name = r.neighborhood_name
+    GROUP BY r.region
+),
+floor_city AS (
+    SELECT QUANTILE_CONT(price_per_sqft_land, 0.05) as acq_cost_floor_per_sqft
+    FROM sales_with_area
 )
 SELECT
     n.neighborhood_name,
-    COALESCE(nm.condo_price_per_sqft, rm.region_median, c.city_median, {{ default_condo_price_per_sqft }}) as condo_price_per_sqft
+    COALESCE(nm.condo_price_per_sqft, rm.region_median, c.city_median, {{ default_condo_price_per_sqft }}) as condo_price_per_sqft,
+    COALESCE(fn.acq_cost_floor_per_sqft, fr.acq_cost_floor_per_sqft, fc.acq_cost_floor_per_sqft, {{ default_acq_floor_per_sqft }}) as acq_cost_floor_per_sqft
 FROM (SELECT DISTINCT neighborhood_name FROM spatial_base) n
          LEFT JOIN neighborhood_medians nm ON n.neighborhood_name = nm.neighborhood_name
          LEFT JOIN region_mapping r ON n.neighborhood_name = r.neighborhood_name
          LEFT JOIN region_medians rm ON r.region = rm.region
-         CROSS JOIN citywide c;
+         CROSS JOIN citywide c
+         LEFT JOIN floor_neighborhood fn ON n.neighborhood_name = fn.neighborhood_name
+         LEFT JOIN floor_region fr ON r.region = fr.region
+         CROSS JOIN floor_city fc;

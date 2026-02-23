@@ -45,5 +45,4 @@ economic_assumptions:
   default_condo_price_per_sqft: 350.0
   const_cost_per_sqft_high: 300.0
   const_cost_per_sqft_low: 240.0
-  high_cost_acq_floor_per_sqft: 125.0
   default_acq_floor_per_sqft: 20.0

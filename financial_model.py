@@ -381,7 +381,6 @@ def run_spatial_pipeline(con, is_sandbox=False):
     def_condo = eco.get('default_condo_price_per_sqft', 350.0)
     cost_high = eco.get('const_cost_per_sqft_high', 300.0)
     cost_low = eco.get('const_cost_per_sqft_low', 240.0)
-    acq_high = eco.get('high_cost_acq_floor_per_sqft', 100.0)
     acq_low = eco.get('default_acq_floor_per_sqft', 20.0)
 
     con.execute(f"""
@@ -402,8 +401,7 @@ def run_spatial_pipeline(con, is_sandbox=False):
             CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
                  THEN {cost_high} ELSE {cost_low} END as const_cost_per_sqft,
                  
-            CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
-                 THEN {acq_high} ELSE {acq_low} END as acq_cost_floor_per_sqft,
+            COALESCE(dcv.acq_cost_floor_per_sqft, {acq_low}) as acq_cost_floor_per_sqft,
 
             pd.is_train_1320, pd.is_train_2640, pd.is_brt_1320, pd.is_brt_2640, pd.is_hf_1320, pd.all_bus_count, pd.hf_bus_count
         

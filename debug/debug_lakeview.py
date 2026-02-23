@@ -51,41 +51,76 @@ def run_lakeview_debug():
     print(df_econ.to_string(index=False))
 
     print("\n" + "="*80)
-    print("3. THE NEAR-MISSES: Top 5 Closest to Breakeven under SB79")
+    print("3. THE NEAR-MISSES: Top 10 Closest to Breakeven under CURRENT LAWS")
     print("="*80)
 
-    near_miss_query = """
+    near_miss_curr_query = f"""
         SELECT
             prop_address,
             zone_class,
             area_sqft,
             existing_units,
-            cap_true_sb79 as allowed_units,
+            current_capacity as allowed_units,
             ROUND(acquisition_cost, 0) as acq_cost,
-            ROUND(cost_sb79 - acquisition_cost, 0) as construction_cost,
-            ROUND(cost_sb79, 0) as total_cost,
-            ROUND(rev_sb79, 0) as total_revenue,
-            ROUND(rev_sb79 / cost_sb79, 3) as raw_roi
+            ROUND(cost_curr - acquisition_cost, 0) as construction_cost,
+            ROUND(cost_curr, 0) as total_cost,
+            ROUND(rev_curr, 0) as total_revenue,
+            ROUND(rev_curr / cost_curr, 3) as raw_roi
         FROM step5_pro_forma
         WHERE neighborhood_name = 'LAKE VIEW'
           AND pass_zoning_class AND pass_prop_class AND pass_min_value AND pass_age_value AND pass_max_units AND pass_lot_density
+          AND current_capacity > existing_units
+          AND (rev_curr / cost_curr) < {target_margin}
         ORDER BY raw_roi DESC
-        LIMIT 5
+        LIMIT 10
     """
-    df_near_miss = con.execute(near_miss_query).df()
+    df_near_miss_curr = con.execute(near_miss_curr_query).df()
 
     format_cols = ['acq_cost', 'construction_cost', 'total_cost', 'total_revenue']
     for col in format_cols:
-        df_near_miss[col] = df_near_miss[col].apply(lambda x: f"${x:,.0f}")
+        if col in df_near_miss_curr.columns:
+            df_near_miss_curr[col] = df_near_miss_curr[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "$0")
 
-    print(df_near_miss.to_string(index=False))
+    print(df_near_miss_curr.to_string(index=False))
 
     print("\n" + "="*80)
-    print("4. THE BREAKEVEN GAP: What needs to change for the best lot?")
+    print("4. THE NEAR-MISSES: Top 10 Closest to Breakeven under PRITZKER ZONING")
     print("="*80)
 
-    if not df_near_miss.empty:
-        best_lot = df_near_miss.iloc[0]
+    near_miss_pritzker_query = f"""
+        SELECT
+            prop_address,
+            zone_class,
+            area_sqft,
+            existing_units,
+            pritzker_capacity as allowed_units,
+            ROUND(acquisition_cost, 0) as acq_cost,
+            ROUND(cost_pritzker - acquisition_cost, 0) as construction_cost,
+            ROUND(cost_pritzker, 0) as total_cost,
+            ROUND(rev_pritzker, 0) as total_revenue,
+            ROUND(rev_pritzker / cost_pritzker, 3) as raw_roi
+        FROM step5_pro_forma
+        WHERE neighborhood_name = 'LAKE VIEW'
+          AND pass_zoning_class AND pass_prop_class AND pass_min_value AND pass_age_value AND pass_max_units AND pass_lot_density
+          AND pritzker_capacity > existing_units
+          AND (rev_pritzker / cost_pritzker) < {target_margin}
+        ORDER BY raw_roi DESC
+        LIMIT 10
+    """
+    df_near_miss_pritzker = con.execute(near_miss_pritzker_query).df()
+
+    for col in format_cols:
+        if col in df_near_miss_pritzker.columns:
+            df_near_miss_pritzker[col] = df_near_miss_pritzker[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "$0")
+
+    print(df_near_miss_pritzker.to_string(index=False))
+
+    print("\n" + "="*80)
+    print("5. THE BREAKEVEN GAP: What needs to change for the best Pritzker lot?")
+    print("="*80)
+
+    if not df_near_miss_pritzker.empty:
+        best_lot = df_near_miss_pritzker.iloc[0]
         current_roi = best_lot['raw_roi']
 
         print(f"Address: {best_lot['prop_address']}")

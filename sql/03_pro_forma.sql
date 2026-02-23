@@ -14,8 +14,7 @@ WITH combined AS (
         COALESCE(dcv.condo_price_per_sqft, {{ default_condo_price_per_sqft }}) as condo_price_per_sqft,
         CASE WHEN up.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE')
              THEN {{ const_cost_per_sqft_high }} ELSE {{ const_cost_per_sqft_low }} END as const_cost_per_sqft,
-        CASE WHEN up.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE')
-             THEN {{ high_cost_acq_floor_per_sqft }} ELSE {{ default_acq_floor_per_sqft }} END as acq_cost_floor_per_sqft,
+        COALESCE(dcv.acq_cost_floor_per_sqft, {{ default_acq_floor_per_sqft }}) as acq_cost_floor_per_sqft,
         {{ target_profit_margin }} as target_profit_margin,
         {{ min_unit_size_sqft }} as min_unit_size_sqft
     FROM unified_properties up
