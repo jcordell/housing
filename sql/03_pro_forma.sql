@@ -13,9 +13,9 @@ WITH combined AS (
         up.market_correction_multiplier,
 
         dcv.condo_price_per_sqft,
-        {{ cost_2_4_units }} as cost_2_4_units,
-        {{ cost_5_15_units }} as cost_5_15_units,
-        {{ cost_15_plus_units }} as cost_15_plus_units,
+        {{ cost_2_4_units }} as cost_2_4_units_base,
+        {{ cost_5_15_units }} as cost_5_15_units_base,
+        {{ cost_15_plus_units }} as cost_15_plus_units_base,
 
         CASE WHEN up.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE')
              THEN {{ high_cost_acq_floor_per_sqft }} ELSE {{ default_acq_floor_per_sqft }} END as acq_cost_floor_per_sqft,
@@ -73,12 +73,12 @@ capacities AS (
 ),
 cost_applied AS (
     SELECT *,
-        CASE WHEN current_capacity BETWEEN 5 AND 14 THEN cost_5_15_units WHEN current_capacity >= 15 THEN cost_15_plus_units ELSE cost_2_4_units END as cpu_current,
-        CASE WHEN pritzker_capacity BETWEEN 5 AND 14 THEN cost_5_15_units WHEN pritzker_capacity >= 15 THEN cost_15_plus_units ELSE cost_2_4_units END as cpu_pritzker,
-        CASE WHEN cap_true_sb79 BETWEEN 5 AND 14 THEN cost_5_15_units WHEN cap_true_sb79 >= 15 THEN cost_15_plus_units ELSE cost_2_4_units END as cpu_sb79,
-        CASE WHEN cap_train_only BETWEEN 5 AND 14 THEN cost_5_15_units WHEN cap_train_only >= 15 THEN cost_15_plus_units ELSE cost_2_4_units END as cpu_train,
-        CASE WHEN cap_train_and_hf_bus BETWEEN 5 AND 14 THEN cost_5_15_units WHEN cap_train_and_hf_bus >= 15 THEN cost_15_plus_units ELSE cost_2_4_units END as cpu_hf_bus,
-        CASE WHEN cap_train_and_bus_combo BETWEEN 5 AND 14 THEN cost_5_15_units WHEN cap_train_and_bus_combo >= 15 THEN cost_15_plus_units ELSE cost_2_4_units END as cpu_combo
+        CASE WHEN current_capacity BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN current_capacity >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_current,
+        CASE WHEN pritzker_capacity BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN pritzker_capacity >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_pritzker,
+        CASE WHEN cap_true_sb79 BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN cap_true_sb79 >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_sb79,
+        CASE WHEN cap_train_only BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN cap_train_only >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_train,
+        CASE WHEN cap_train_and_hf_bus BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN cap_train_and_hf_bus >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_hf_bus,
+        CASE WHEN cap_train_and_bus_combo BETWEEN 5 AND 14 THEN cost_5_15_units_base + (unit_size_sqft * 50) WHEN cap_train_and_bus_combo >= 15 THEN cost_15_plus_units_base + (unit_size_sqft * 75) ELSE cost_2_4_units_base + (unit_size_sqft * 25) END as cpu_combo
     FROM capacities
 ),
 filtered AS (

@@ -27,6 +27,32 @@ neighborhood_medians AS (
     WHERE price_per_sqft BETWEEN 100 AND 1200
     GROUP BY neighborhood_name
 ),
+region_mapping AS (
+    SELECT
+        neighborhood_name,
+        CASE
+            WHEN neighborhood_name IN ('ROGERS PARK', 'EDGEWATER', 'UPTOWN', 'LAKE VIEW', 'LINCOLN PARK', 'NORTH CENTER', 'LINCOLN SQUARE', 'WEST RIDGE', 'ALBANY PARK') THEN 'NORTH'
+            WHEN neighborhood_name IN ('LOGAN SQUARE', 'WEST TOWN', 'NEAR WEST SIDE', 'LOWER WEST SIDE', 'EAST GARFIELD PARK', 'WEST GARFIELD PARK', 'NORTH LAWNDALE', 'SOUTH LAWNDALE', 'AUSTIN', 'HUMBOLDT PARK', 'BELMONT CRAGIN', 'HERMOSA', 'AVONDALE', 'IRVING PARK', 'PORTAGE PARK', 'JEFFERSON PARK', 'DUNNING', 'MONTCLARE') THEN 'WEST'
+            WHEN neighborhood_name IN ('NEAR NORTH SIDE', 'LOOP', 'NEAR SOUTH SIDE') THEN 'CENTRAL'
+            ELSE 'SOUTH'
+        END as region
+    FROM (SELECT DISTINCT neighborhood_name FROM spatial_base)
+),
+sales_with_region AS (
+    SELECT
+        s.price_per_sqft,
+        r.region
+    FROM sales_with_neighborhood s
+    JOIN region_mapping r ON s.neighborhood_name = r.neighborhood_name
+),
+region_medians AS (
+    SELECT
+        region,
+        MEDIAN(price_per_sqft) as region_median
+    FROM sales_with_region
+    WHERE price_per_sqft BETWEEN 100 AND 1200
+    GROUP BY region
+),
 citywide AS (
     SELECT MEDIAN(price_per_sqft) as city_median
     FROM sales_with_neighborhood
@@ -34,7 +60,9 @@ citywide AS (
 )
 SELECT
     n.neighborhood_name,
-    COALESCE(nm.condo_price_per_sqft, c.city_median, {{ default_condo_price_per_sqft }}) as condo_price_per_sqft
+    COALESCE(nm.condo_price_per_sqft, rm.region_median, c.city_median, {{ default_condo_price_per_sqft }}) as condo_price_per_sqft
 FROM (SELECT DISTINCT neighborhood_name FROM spatial_base) n
          LEFT JOIN neighborhood_medians nm ON n.neighborhood_name = nm.neighborhood_name
+         LEFT JOIN region_mapping r ON n.neighborhood_name = r.neighborhood_name
+         LEFT JOIN region_medians rm ON r.region = rm.region
          CROSS JOIN citywide c;
