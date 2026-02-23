@@ -1,6 +1,7 @@
 import duckdb
 import pandas as pd
 import yaml
+import sys
 
 def load_config():
     with open('config.yaml', 'r') as f:
@@ -132,6 +133,134 @@ def run_debug_metrics():
     """
     df_tod = con.execute(tod_query).df()
     print(df_tod.to_string(index=False))
+
+    print("\n" + "="*80)
+    print("5. DEBUG SAMPLES (CSV FORMAT - Copy/Paste into Excel)")
+    print("="*80)
+
+    sample_query = """
+    WITH status_quo AS (
+        SELECT 'Passes Status Quo' as scenario, * FROM step5_pro_forma WHERE feasible_existing > 0 LIMIT 2
+    ),
+    pritzker_only AS (
+        SELECT 'Passes Pritzker Only' as scenario, * FROM step5_pro_forma WHERE feasible_existing = 0 AND new_pritzker > 0 LIMIT 3
+    ),
+    sb79_only AS (
+        SELECT 'Passes SB79 Only' as scenario, * FROM step5_pro_forma WHERE feasible_existing = 0 AND new_pritzker = 0 AND add_true_sb79 > 0 LIMIT 3
+    ),
+    fails_all AS (
+        SELECT 'Fails All (ROI or Physical)' as scenario, * FROM step5_pro_forma WHERE feasible_existing = 0 AND new_pritzker = 0 AND add_true_sb79 = 0 AND pass_zoning_class = true AND pass_prop_class = true LIMIT 2
+    )
+    SELECT
+        scenario, prop_address, neighborhood_name, zone_class, area_sqft,
+        primary_prop_class, existing_units, building_age, market_correction_multiplier,
+        condo_price_per_sqft, value_per_new_unit, acquisition_cost, cpu_current as base_construction_cost_per_unit,
+        current_capacity, pritzker_capacity, cap_true_sb79,
+        feasible_existing, new_pritzker, add_true_sb79
+    FROM status_quo
+    UNION ALL SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, value_per_new_unit, acquisition_cost, cpu_current, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM pritzker_only
+    UNION ALL SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, value_per_new_unit, acquisition_cost, cpu_current, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM sb79_only
+    UNION ALL SELECT scenario, prop_address, neighborhood_name, zone_class, area_sqft, primary_prop_class, existing_units, building_age, market_correction_multiplier, condo_price_per_sqft, value_per_new_unit, acquisition_cost, cpu_current, current_capacity, pritzker_capacity, cap_true_sb79, feasible_existing, new_pritzker, add_true_sb79 FROM fails_all
+    """
+    df_samples = con.execute(sample_query).df()
+    df_samples.to_csv(sys.stdout, index=False)
+
+    print("\n" + "="*80)
+    print("6. LAKE VIEW & LINCOLN PARK SCENARIO SAMPLES (10 per scenario)")
+    print("="*80)
+
+    lv_lp_query = """
+    WITH lv_sq AS (
+        SELECT 'LV - Status Quo' as scenario, * FROM step5_pro_forma WHERE neighborhood_name = 'LAKE VIEW' AND feasible_existing > 0 ORDER BY RANDOM() LIMIT 10
+    ),
+    lp_sq AS (
+        SELECT 'LP - Status Quo' as scenario, * FROM step5_pro_forma WHERE neighborhood_name = 'LINCOLN PARK' AND feasible_existing > 0 ORDER BY RANDOM() LIMIT 10
+    ),
+    lv_pritzker AS (
+        SELECT 'LV - Pritzker Only' as scenario, * FROM step5_pro_forma WHERE neighborhood_name = 'LAKE VIEW' AND feasible_existing = 0 AND new_pritzker > 0 ORDER BY RANDOM() LIMIT 10
+    ),
+    lp_pritzker AS (
+        SELECT 'LP - Pritzker Only' as scenario, * FROM step5_pro_forma WHERE neighborhood_name = 'LINCOLN PARK' AND feasible_existing = 0 AND new_pritzker > 0 ORDER BY RANDOM() LIMIT 10
+    ),
+    lv_sb79 AS (
+        SELECT 'LV - SB79 Only' as scenario, * FROM step5_pro_forma WHERE neighborhood_name = 'LAKE VIEW' AND feasible_existing = 0 AND new_pritzker = 0 AND add_true_sb79 > 0 ORDER BY RANDOM() LIMIT 10
+    ),
+    lp_sb79 AS (
+        SELECT 'LP - SB79 Only' as scenario, * FROM step5_pro_forma WHERE neighborhood_name = 'LINCOLN PARK' AND feasible_existing = 0 AND new_pritzker = 0 AND add_true_sb79 > 0 ORDER BY RANDOM() LIMIT 10
+    ),
+    combined_samples AS (
+        SELECT * FROM lv_sq UNION ALL SELECT * FROM lp_sq
+        UNION ALL SELECT * FROM lv_pritzker UNION ALL SELECT * FROM lp_pritzker
+        UNION ALL SELECT * FROM lv_sb79 UNION ALL SELECT * FROM lp_sb79
+    )
+    SELECT
+        scenario, prop_address, neighborhood_name, zone_class, area_sqft,
+        primary_prop_class, existing_units, building_age, market_correction_multiplier,
+        condo_price_per_sqft, value_per_new_unit, acquisition_cost, cpu_current as base_construction_cost_per_unit,
+        current_capacity, pritzker_capacity, cap_true_sb79,
+        feasible_existing, new_pritzker, add_true_sb79
+    FROM combined_samples
+    """
+    df_lv_lp = con.execute(lv_lp_query).df()
+    df_lv_lp.to_csv(sys.stdout, index=False)
+
+    print("\n" + "="*80)
+    print("7. SOUTH SIDE PROFITABILITY CHECK (Closest to Feasible)")
+    print("="*80)
+
+    ss_query = """
+               WITH south_side_base AS (
+                   SELECT * FROM step5_pro_forma
+                   WHERE neighborhood_name IN (
+                                               'ENGLEWOOD', 'WEST ENGLEWOOD', 'WOODLAWN', 'WASHINGTON PARK',
+                                               'CHATHAM', 'AUBURN GRESHAM', 'SOUTH SHORE', 'ROSELAND',
+                                               'PULLMAN', 'GREATER GRAND CROSSING', 'BRONZEVILLE', 'SOUTH CHICAGO'
+                       )
+                     AND pass_zoning_class = true
+                     AND pass_prop_class = true
+               ),
+                    ss_current AS (
+                        SELECT 'Status Quo - Closest' as scenario,
+                               ((current_capacity * value_per_new_unit) / NULLIF(acquisition_cost + (current_capacity * cpu_current), 0)) as raw_roi_ratio,
+                               *
+                        FROM south_side_base
+                        WHERE current_capacity > existing_units
+                        ORDER BY raw_roi_ratio DESC NULLS LAST
+                   LIMIT 10
+                   ),
+                   ss_pritzker AS (
+               SELECT 'Pritzker - Closest' as scenario,
+                   ((pritzker_capacity * value_per_new_unit) / NULLIF(acquisition_cost + (pritzker_capacity * cpu_current), 0)) as raw_roi_ratio,
+                   *
+               FROM south_side_base
+               WHERE pritzker_capacity > current_capacity
+               ORDER BY raw_roi_ratio DESC NULLS LAST
+                   LIMIT 10
+                   ),
+                   ss_sb79 AS (
+               SELECT 'SB79 - Closest' as scenario,
+                   ((cap_true_sb79 * value_per_new_unit) / NULLIF(acquisition_cost + (cap_true_sb79 * cpu_current), 0)) as raw_roi_ratio,
+                   *
+               FROM south_side_base
+               WHERE cap_true_sb79 > GREATEST(current_capacity, pritzker_capacity)
+               ORDER BY raw_roi_ratio DESC NULLS LAST
+                   LIMIT 10
+                   ),
+                   combined_ss AS (
+               SELECT * FROM ss_current
+               UNION ALL SELECT * FROM ss_pritzker
+               UNION ALL SELECT * FROM ss_sb79
+                   )
+               SELECT
+                   scenario, prop_address, neighborhood_name, zone_class, area_sqft,
+                   primary_prop_class, existing_units, acquisition_cost,
+                   cpu_current as base_construction_cost_per_unit, value_per_new_unit,
+                   current_capacity, pritzker_capacity, cap_true_sb79,
+                   ROUND(raw_roi_ratio, 3) as raw_roi_ratio
+               FROM combined_ss \
+               """
+    df_ss = con.execute(ss_query).df()
+    df_ss.to_csv(sys.stdout, index=False)
 
     con.close()
 

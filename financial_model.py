@@ -296,11 +296,18 @@ def run_spatial_pipeline(con, is_sandbox=False):
             
             COALESCE(nsr.market_correction_multiplier, {DEFAULT_SALES_MULTIPLIER}) as market_correction_multiplier,
             
-            -- DYNAMIC ACQUISITION COST FLOOR: Prevents $4 sliver lots from appearing profitable
-            GREATEST(
-                (COALESCE(pd.tot_bldg_value, 0.0) + COALESCE(pd.tot_land_value, 0.0)) * COALESCE(nsr.market_correction_multiplier, {DEFAULT_SALES_MULTIPLIER}), 
-                pd.area_sqft * CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') THEN 100.0 ELSE 20.0 END
-            ) as acquisition_cost,
+            -- DYNAMIC ACQUISITION COST FLOOR & $1 LOT FLAG
+            CASE 
+                WHEN pd.neighborhood_name IN ('ENGLEWOOD', 'WEST ENGLEWOOD', 'WOODLAWN', 'WASHINGTON PARK', 
+                                              'CHATHAM', 'AUBURN GRESHAM', 'SOUTH SHORE', 'ROSELAND', 
+                                              'PULLMAN', 'GREATER GRAND CROSSING', 'BRONZEVILLE', 'SOUTH CHICAGO')
+                     AND pd.primary_prop_class IN ('100', '241', '242')
+                THEN 1.0
+                ELSE GREATEST(
+                    (COALESCE(pd.tot_bldg_value, 0.0) + COALESCE(pd.tot_land_value, 0.0)) * COALESCE(nsr.market_correction_multiplier, {DEFAULT_SALES_MULTIPLIER}), 
+                    pd.area_sqft * CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') THEN 100.0 ELSE 20.0 END
+                )
+            END as acquisition_cost,
             
             CASE WHEN pd.neighborhood_name IN ('LINCOLN PARK', 'LAKE VIEW', 'NEAR NORTH SIDE', 'LOOP', 'NEAR WEST SIDE') 
                  THEN 300000.0 ELSE 240000.0 END as cost_per_unit_low_density,
@@ -309,7 +316,6 @@ def run_spatial_pipeline(con, is_sandbox=False):
                  THEN 420000.0 ELSE 336000.0 END as cost_per_unit_high_density,
             
             1.15 as target_profit_margin,
-            
             LEAST(150, GREATEST(1, CASE WHEN pd.zone_class LIKE 'RS-1%' OR pd.zone_class LIKE 'RS-2%' THEN FLOOR(pd.area_sqft / 5000) WHEN pd.zone_class LIKE 'RS-3%' THEN FLOOR(pd.area_sqft / 2500) WHEN pd.zone_class LIKE 'RT-3.5%' THEN FLOOR(pd.area_sqft / 1250) WHEN pd.zone_class LIKE 'RT-4%' THEN FLOOR(pd.area_sqft / 1000) WHEN pd.zone_class LIKE 'RM-4.5%' OR pd.zone_class LIKE 'RM-5%' THEN FLOOR(pd.area_sqft / 400) WHEN pd.zone_class LIKE 'RM-6%' OR pd.zone_class LIKE 'RM-6.5%' THEN FLOOR(pd.area_sqft / 200) WHEN pd.zone_class LIKE '%-1' THEN FLOOR(pd.area_sqft / 1000) WHEN pd.zone_class LIKE '%-2' OR pd.zone_class LIKE '%-3' THEN FLOOR(pd.area_sqft / 400) WHEN pd.zone_class LIKE '%-5' OR pd.zone_class LIKE '%-6' THEN FLOOR(pd.area_sqft / 200) ELSE FLOOR(pd.area_sqft / 1000) END)) as current_capacity,
             LEAST(150, CASE WHEN pd.zone_class IN ('RS-1', 'RS-2', 'RS-3') THEN CASE WHEN pd.area_sqft < 2500 THEN 1 WHEN pd.area_sqft < 5000 THEN 4 WHEN pd.area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END) as pritzker_capacity,
             LEAST(150, CASE WHEN pd.area_sqft < 5000 THEN 0 WHEN pd.is_train_1320 THEN FLOOR((pd.area_sqft / 43560.0) * 120) WHEN pd.is_train_2640 OR pd.is_brt_1320 OR pd.hf_bus_count >= 2 THEN FLOOR((pd.area_sqft / 43560.0) * 100) WHEN pd.is_brt_2640 THEN FLOOR((pd.area_sqft / 43560.0) * 80) ELSE 0 END) as cap_true_sb79,
