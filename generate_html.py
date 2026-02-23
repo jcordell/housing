@@ -54,6 +54,17 @@ By allowing mid-rise buildings near transit, the city captures nearly **{{ tax_m
 ## New Affordable Housing Units
 Chicago's Affordable Requirements Ordinance (ARO) requires upzoned properties to designate 20% of units as affordable. This upzoning permits **{{ exp_sb79_diff }}** new units strictly in the 15 most expensive neighborhoods. This amendment would mandate the private construction of **{{ affordable_units }} permanently affordable homes** in areas with the city's best schools, transit, and job access while costing taxpayers zero dollars.
 
+## Methodology: Defining "Feasible" Redevelopment
+To ensure our model reflects real-world market conditions rather than purely theoretical maximums, a parcel is only counted as a "feasible un-built multifamily lot" if it passes a strict set of physical, legal, and economic filters:
+
+* **Zoning & Property Type:** The parcel must be zoned for residential or commercial/mixed-use (excluding parks and manufacturing). It excludes existing condominiums, tax-exempt properties, and anomalies like "sliver" lots (assessed under $1,000).
+* **Age & Preservation:** The existing structure must be at least 35 years old or an empty/low-value lot. It must also have fewer than 40 existing units to prevent modeling the demolition of large, currently viable apartment complexes.
+* **Meaningful Density Increase:** The proposed development must at least double the existing unit count and increase total building square footage by at least 25%. The existing building must not already be hyper-dense (existing Floor Area Ratio < 1.5), and the lot must be 1 acre or smaller.
+* **Financial Viability (Pro Forma ROI):** This is the most rigorous constraint. A parcel is only feasible if the projected revenue exceeds total project costs by at least a 15% profit margin. The pro forma components are calculated as follows:
+    * **Projected Revenue:** Calculated dynamically using recent new-build condo sale prices specific to that exact neighborhood, multiplied by the legally allowed number of new units.
+    * **Acquisition Cost:** The Cook County Assessor's estimated market value of the existing property, adjusted upwards by a neighborhood-specific multiplier based on recent real estate sales data to reflect true market rate.
+    * **Construction Cost:** A graduated hard cost scale per unit reflecting real-world labor and material expenses (e.g., mid-sized and larger buildings trigger higher per-unit costs).
+
 ## Transit Proximity Policy Options
 We analyzed four different legislative requirements for triggering transit-based upzoning. We compared the base SB79 text (upzoning units near Trains OR Bus Intersections) to alternatives requiring varying levels of access to transportation.
 
