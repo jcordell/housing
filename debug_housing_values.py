@@ -1,57 +1,59 @@
 import duckdb
 import pandas as pd
 
-def run_condo_value_debug():
+def run_redevelopment_audit():
     con = duckdb.connect('data/sb79_housing.duckdb')
 
     print("\n" + "="*80)
-    print("NEW BUILD SALES: Condos & Flats ONLY (Recent Sales)")
+    print("AUDIT: PPSF BY NEIGHBORHOOD (MOST TO LEAST EXPENSIVE)")
     print("="*80)
 
-    debug_query = """
-    WITH base_parcel_chars AS (
-        -- Fetch the Year Built from the Base PIN so condos don't drop out
-        SELECT SUBSTR(LPAD(CAST(pin AS VARCHAR), 14, '0'), 1, 10) as pin10,
-               MAX(TRY_CAST(char_yrblt AS INT)) as base_yrblt
-        FROM res_characteristics
-        GROUP BY 1
-    ),
-    raw_sales AS (
+    # Leaderboard of neighborhood values
+    leaderboard_query = """
+    SELECT
+        neighborhood_name,
+        ROUND(condo_price_per_sqft, 2) as ppsf,
+        (SELECT COUNT(*) FROM parcel_sales s
+         JOIN spatial_base sb ON SUBSTR(REPLACE(CAST(s.pin AS VARCHAR), '-', ''), 1, 10) = sb.pin10
+         WHERE sb.neighborhood_name = d.neighborhood_name
+         AND s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR) as recent_sales_volume
+    FROM dynamic_condo_values d
+    ORDER BY condo_price_per_sqft DESC
+    """
+    print(con.execute(leaderboard_query).df().to_string(index=False))
+
+    print("\n" + "="*80)
+    print("FEASIBILITY KILLER: CONDO (299) VS FLAT (211/212) PRICE GAP")
+    print("="*80)
+
+    # Check if Condos are inflating the acquisition floor
+    gap_query = """
+    WITH raw_stats AS (
         SELECT
-            SUBSTR(REPLACE(CAST(s.pin AS VARCHAR), '-', ''), 1, 10) as pin10,
-            TRY_CAST(s.sale_price AS DOUBLE) as sale_price,
-            CAST(s.class AS VARCHAR) as prop_class,
-            -- Inject 1200 sqft for condos
-            CASE WHEN CAST(s.class AS VARCHAR) = '299' THEN 1200.0 ELSE TRY_CAST(c.char_bldg_sf AS DOUBLE) END as sqft,
-            -- Use the unit's year built, or fallback to the Base PIN's year built
-            COALESCE(TRY_CAST(c.char_yrblt AS INT), bc.base_yrblt) as yrblt,
-            TRY_CAST(s.sale_date AS DATE) as sale_date
+            sb.neighborhood_name,
+            s.class,
+            AVG(s.sale_price / COALESCE(cc.unit_sf, u.char_bldg_sf, 1200)) as avg_ppsf
         FROM parcel_sales s
-        LEFT JOIN res_characteristics c ON s.pin = c.pin
-        LEFT JOIN base_parcel_chars bc ON SUBSTR(REPLACE(CAST(s.pin AS VARCHAR), '-', ''), 1, 10) = bc.pin10
-        WHERE TRY_CAST(s.sale_price AS DOUBLE) > 50000
-          -- RESTRICT to Condos and Multi-Family. No Single Family Homes.
-          AND CAST(s.class AS VARCHAR) IN ('211', '212', '213', '214', '299')
+        LEFT JOIN condo_characteristics cc ON s.pin = cc.pin
+        LEFT JOIN res_characteristics u ON s.pin = u.pin
+        JOIN spatial_base sb ON SUBSTR(REPLACE(CAST(s.pin AS VARCHAR), '-', ''), 1, 10) = sb.pin10
+        WHERE s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR
+          AND s.class IN ('211', '212', '299')
+        GROUP BY 1, 2
     )
     SELECT
-        sb.neighborhood_name,
-        CASE WHEN rs.prop_class = '299' THEN 'Condominium (299)' ELSE 'Multi-Family Flat' END as property_type,
-        COUNT(*) as sales_count,
-        CAST(MEDIAN(rs.sale_price / rs.sqft) AS INT) as median_price_per_sqft
-    FROM raw_sales rs
-    JOIN (SELECT DISTINCT pin10, neighborhood_name FROM spatial_base) sb ON rs.pin10 = sb.pin10
-    WHERE rs.yrblt >= 2015
-      AND EXTRACT(YEAR FROM rs.sale_date) >= 2021  -- Only look at sales from the last few years
-      AND (rs.sale_price / rs.sqft) BETWEEN 100 AND 1200
-    GROUP BY 1, 2
-    ORDER BY 1, 2
+        neighborhood_name,
+        ROUND(MAX(CASE WHEN class = '299' THEN avg_ppsf END), 2) as condo_ppsf,
+        ROUND(MAX(CASE WHEN class IN ('211', '212') THEN avg_ppsf END), 2) as flat_ppsf,
+        ROUND(MAX(CASE WHEN class = '299' THEN avg_ppsf END) /
+              NULLIF(MAX(CASE WHEN class IN ('211', '212') THEN avg_ppsf END), 0), 2) as inflation_factor
+    FROM raw_stats
+    GROUP BY 1
+    HAVING inflation_factor IS NOT NULL
+    ORDER BY inflation_factor DESC
+    LIMIT 15
     """
-
-    df_types = con.execute(debug_query).df()
-
-    # Check the key neighborhoods to verify Condos finally populate
-    sample_hoods = ['LINCOLN PARK', 'LAKE VIEW', 'ENGLEWOOD', 'WOODLAWN']
-    print(df_types[df_types['neighborhood_name'].isin(sample_hoods)].to_string(index=False))
+    print(con.execute(gap_query).df().to_string(index=False))
 
 if __name__ == "__main__":
-    run_condo_value_debug()
+    run_redevelopment_audit()

@@ -1,31 +1,64 @@
 CREATE OR REPLACE TABLE dynamic_condo_values AS
-WITH new_build_sales AS (
+WITH flat_characteristics AS (
+    SELECT
+        pin,
+        MAX(TRY_CAST(char_yrblt AS INT)) as yrblt,
+        MAX(TRY_CAST(char_bldg_sf AS DOUBLE)) as sqft
+    FROM res_characteristics
+    WHERE CAST(class AS VARCHAR) IN ('211', '212')
+    GROUP BY pin
+),
+condo_chars_clean AS (
+    SELECT
+        pin,
+        MAX(TRY_CAST(year_built AS INT)) as yrblt,
+        MAX(NULLIF(TRY_CAST(unit_sf AS DOUBLE), 0)) as sqft
+    FROM condo_characteristics
+    GROUP BY pin
+),
+recent_new_sales AS (
     SELECT
         SUBSTR(REPLACE(CAST(s.pin AS VARCHAR), '-', ''), 1, 10) as pin10,
         TRY_CAST(s.sale_price AS DOUBLE) as sale_price,
-        TRY_CAST(c.char_bldg_sf AS DOUBLE) as sqft,
-        TRY_CAST(c.char_yrblt AS INT) as yrblt
+        f.sqft
     FROM parcel_sales s
-    JOIN res_characteristics c ON s.pin = c.pin
-    WHERE TRY_CAST(s.sale_price AS DOUBLE) > 50000
-      AND TRY_CAST(c.char_yrblt AS INT) >= 2018
-      AND TRY_CAST(c.char_bldg_sf AS DOUBLE) > 400
-      AND CAST(s.class AS VARCHAR) IN ('202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '212', '234', '278')
-),
-sales_with_neighborhood AS (
+    JOIN flat_characteristics f ON s.pin = f.pin
+    WHERE s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR
+      AND f.yrblt >= 2005
+      AND f.sqft > 400
+      AND TRY_CAST(s.sale_price AS DOUBLE) > 50000
+      AND s.is_multisale = FALSE -- FIX 1: Filter out bulk/multi-parcel sales
+
+    UNION ALL
+
     SELECT
-        sb.neighborhood_name,
-        s.sale_price / s.sqft as price_per_sqft
-    FROM new_build_sales s
-    JOIN (SELECT DISTINCT pin10, neighborhood_name FROM spatial_base) sb ON s.pin10 = sb.pin10
+        SUBSTR(REPLACE(CAST(s.pin AS VARCHAR), '-', ''), 1, 10) as pin10,
+        TRY_CAST(s.sale_price AS DOUBLE) as sale_price,
+        c.sqft
+    FROM parcel_sales s
+    JOIN condo_chars_clean c ON s.pin = c.pin
+    WHERE s.sale_date >= CURRENT_DATE - INTERVAL '2' YEAR
+      AND c.yrblt >= 2005
+      AND c.sqft > 400
+      AND TRY_CAST(s.sale_price AS DOUBLE) > 50000
+      AND s.is_multisale = FALSE -- FIX 1: Filter out bulk/multi-parcel sales
+),
+filtered_sales AS (
+    SELECT
+        rns.sale_price,
+        rns.sqft,
+        sb.neighborhood_name
+    FROM recent_new_sales rns
+    JOIN (SELECT DISTINCT pin10, neighborhood_name FROM spatial_base) sb ON rns.pin10 = sb.pin10
 ),
 neighborhood_medians AS (
     SELECT
         neighborhood_name,
-        MEDIAN(price_per_sqft) as condo_price_per_sqft
-    FROM sales_with_neighborhood
-    WHERE price_per_sqft BETWEEN 100 AND 1200
+        MEDIAN(sale_price / sqft) as condo_price_per_sqft
+    FROM filtered_sales
+    WHERE (sale_price / sqft) BETWEEN 100 AND 1200
     GROUP BY neighborhood_name
+    HAVING COUNT(*) >= 10 -- FIX 2: Require 10 sales to trust neighborhood median
 ),
 region_mapping AS (
     SELECT
@@ -40,10 +73,10 @@ region_mapping AS (
 ),
 sales_with_region AS (
     SELECT
-        s.price_per_sqft,
+        (fs.sale_price / fs.sqft) as price_per_sqft,
         r.region
-    FROM sales_with_neighborhood s
-    JOIN region_mapping r ON s.neighborhood_name = r.neighborhood_name
+    FROM filtered_sales fs
+    JOIN region_mapping r ON fs.neighborhood_name = r.neighborhood_name
 ),
 region_medians AS (
     SELECT
@@ -54,9 +87,9 @@ region_medians AS (
     GROUP BY region
 ),
 citywide AS (
-    SELECT MEDIAN(price_per_sqft) as city_median
-    FROM sales_with_neighborhood
-    WHERE price_per_sqft BETWEEN 100 AND 1200
+    SELECT MEDIAN(sale_price / sqft) as city_median
+    FROM filtered_sales
+    WHERE (sale_price / sqft) BETWEEN 100 AND 1200
 )
 SELECT
     n.neighborhood_name,

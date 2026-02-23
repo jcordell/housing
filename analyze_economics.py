@@ -47,11 +47,13 @@ def run_analysis():
     df_rest = df_neighborhoods[~df_neighborhoods['neighborhood_name'].isin(high_cost_nbhds[:15])]
 
     feasible_existing = df_neighborhoods['feasible_existing'].sum()
+    total_pritzker = df_neighborhoods['feasible_existing'].sum() + df_neighborhoods['new_pritzker'].sum()
+
     exp_pritzker = df_top15['new_pritzker'].sum()
     exp_sb79_diff = df_top15['add_true_sb79'].sum()
     exp_sb79_full = df_top15['tot_true_sb79'].sum()
 
-    top5_pritzker = df_top5['new_pritzker'].sum()
+    top5_pritzker = df_top5['feasible_existing'].sum() + df_top5['new_pritzker'].sum()
     top5_sb79_full = df_top5['tot_true_sb79'].sum()
 
     pct_pritzker = (exp_pritzker / df_neighborhoods['new_pritzker'].sum()) * 100 if df_neighborhoods['new_pritzker'].sum() > 0 else 0
@@ -76,7 +78,7 @@ def run_analysis():
 
     template_data = {
         'feasible_existing': f"{feasible_existing:,.0f}",
-        'pritzker_total': f"{df_neighborhoods['new_pritzker'].sum():,.0f}",
+        'pritzker_total': f"{total_pritzker:,.0f}",
         'pct_pritzker': f"{pct_pritzker:.1f}",
         'true_sb79_total': f"{df_neighborhoods['tot_true_sb79'].sum():,.0f}",
         'true_sb79_diff': f"+{df_neighborhoods['add_true_sb79'].sum():,.0f}",

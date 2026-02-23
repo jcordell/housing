@@ -40,7 +40,8 @@ def setup_database(config):
         config['files']['res_characteristics_csv']: 'res_characteristics',
         config['files']['parcel_addresses_csv']: 'parcel_addresses',
         config['files']['parcel_sales_csv']: 'parcel_sales',
-        config['files']['building_permits_csv']: 'building_permits'
+        config['files']['building_permits_csv']: 'building_permits',
+        config['files']['condo_characteristics_csv']: 'condo_characteristics',
     }
 
     for filename, table_name in table_map.items():
