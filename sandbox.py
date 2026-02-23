@@ -49,30 +49,107 @@ def run_sandbox():
     df_condos = con.execute("SELECT * FROM dynamic_condo_values").df()
     print(df_condos.to_string(index=False))
 
-    print("\n🔍 DEBUG LOG: Sample of properties failing due to ROI =============================\n")
-    df_failed_roi = df_raw[df_raw['status'] == '❌ Failed: Not Profitable (Pro Forma ROI)']
+    print("\n" + "="*80)
+    print("🔍 SCENARIO ANALYSIS SAMPLES")
+    print("="*80)
 
+    def print_financial_block(row, scenario):
+        clean_addr = str(row['prop_address']).title() if pd.notnull(row['prop_address']) else 'Unknown Address'
+        assessed_val = row['tot_bldg_value'] + row['tot_land_value']
+        sell_price = row['value_per_new_unit']
+        margin = row['target_profit_margin']
+
+        def calc_financials(capacity, cpu):
+            rev = capacity * sell_price
+            cost = (row['acquisition_cost'] + (capacity * cpu)) * margin
+            return rev, cost
+
+        def get_fail_reason(cap, cpu):
+            if cap < max(1.0, row['existing_units']) * 2.0:
+                return f"Fails 2x density minimum (Need {max(1.0, row['existing_units']) * 2.0}, got {cap})"
+            rev, cost = calc_financials(cap, cpu)
+            if rev <= cost:
+                return f"Fails ROI (Cost: ${cost:,.0f} > Rev: ${rev:,.0f})"
+            return "Fails secondary physical constraint (sqft minimum or lot density)"
+
+        print(f"\n📍 {row['neighborhood_name']} | {clean_addr} | Zone: {row['zone_class']} | Area: {row['area_sqft']:,.0f} sqft")
+        print(f"   🏠 EXISTING: {row['existing_units']} units | Age: {row['building_age']} yrs | Sqft: {row['existing_sqft']} | Class: {row['primary_prop_class']}")
+        print(f"   📊 ACQUISITION: ${row['acquisition_cost']:,.0f} (Market Mult: {row['market_correction_multiplier']:.2f}x on Tax Val: ${assessed_val:,.0f})")
+        print(f"   📈 NEW UNITS: Projected Sell Price: ${sell_price:,.0f} per unit")
+
+        if scenario == 'ROI_FAIL':
+            cap = row['current_capacity']
+            rev, cost = calc_financials(cap, row['cpu_current'])
+            print(f"   ❌ CURRENT ZONING FAILED: Allowed {cap} units.")
+            print(f"      Construction: ${(cap*row['cpu_current']):,.0f} | Total Cost (w/ {margin}x margin): ${cost:,.0f}")
+            print(f"      Expected Revenue: ${rev:,.0f}  <-- FAILED ROI")
+
+        elif scenario == 'CURRENT_PASS':
+            cap = row['current_capacity']
+            rev, cost = calc_financials(cap, row['cpu_current'])
+            print(f"   ✅ CURRENT ZONING PASSED: Allows {cap} units.")
+            print(f"      Construction: ${(cap*row['cpu_current']):,.0f} | Total Cost (w/ {margin}x margin): ${cost:,.0f}")
+            print(f"      Expected Revenue: ${rev:,.0f}  <-- PROFITABLE")
+
+        elif scenario == 'PRITZKER_PASS':
+            cap_curr = row['current_capacity']
+            print(f"   ❌ CURRENT ZONING FAILED: Allowed {cap_curr} units.")
+            print(f"      Reason: {get_fail_reason(cap_curr, row['cpu_current'])}")
+
+            cap_pritzker = row['pritzker_capacity']
+            rev, cost = calc_financials(cap_pritzker, row['cpu_pritzker'])
+            print(f"   ✅ PRITZKER UPZONING PASSED: Allows {cap_pritzker} units.")
+            print(f"      Construction: ${(cap_pritzker*row['cpu_pritzker']):,.0f} | Total Cost (w/ {margin}x margin): ${cost:,.0f}")
+            print(f"      Expected Revenue: ${rev:,.0f}  <-- PROFITABLE")
+
+        elif scenario == 'SB79_PASS':
+            cap_pritzker = row['pritzker_capacity']
+            print(f"   ❌ PRITZKER UPZONING FAILED: Allowed {cap_pritzker} units.")
+            print(f"      Reason: {get_fail_reason(cap_pritzker, row['cpu_pritzker'])}")
+
+            cap_sb79 = row['cap_true_sb79']
+            rev, cost = calc_financials(cap_sb79, row['cpu_sb79'])
+            print(f"   🚆 SB79 TOD UPZONING PASSED: Allows {cap_sb79} units.")
+            print(f"      Construction: ${(cap_sb79*row['cpu_sb79']):,.0f} | Total Cost (w/ {margin}x margin): ${cost:,.0f}")
+            print(f"      Expected Revenue: ${rev:,.0f}  <-- PROFITABLE")
+
+        print("-" * 80)
+
+    # 1. Failing strictly due to ROI
+    print("\n[SCENARIO 1] Failing strictly due to ROI (Current Zoning)")
+    df_failed_roi = df_raw[df_raw['status'] == '❌ Failed: Not Profitable (Pro Forma ROI)']
     if df_failed_roi.empty:
         print("No properties failed strictly due to ROI.")
     else:
-        sample_df = df_failed_roi.groupby('neighborhood_name').head(2)
-        for _, row in sample_df.iterrows():
-            clean_addr = str(row['prop_address']).title() if pd.notnull(row['prop_address']) else 'Unknown Address'
-            assessed_val = row['tot_bldg_value'] + row['tot_land_value']
+        for _, row in df_failed_roi.groupby('neighborhood_name').head(1).iterrows():
+            print_financial_block(row, 'ROI_FAIL')
 
-            print(f"📍 {row['neighborhood_name']} | {clean_addr} | Zone: {row['zone_class']} | Area: {row['area_sqft']:,.0f} sqft")
-            print(f"   🏠 EXISTING: {row['existing_units']} units | Age: {row['building_age']} yrs | Sqft: {row['existing_sqft']} | Class: {row['primary_prop_class']}")
-            print(f"   📈 PROPOSED: {row['current_capacity']} units | Projected Condo Sell Price: ${row['value_per_new_unit']:,.0f} per unit")
+    # 2. Passing under current laws
+    print("\n[SCENARIO 2] Feasible Under CURRENT Laws")
+    df_curr_pass = df_raw[df_raw['feasible_existing'] > 0]
+    if df_curr_pass.empty:
+        print("No properties pass under current laws.")
+    else:
+        for _, row in df_curr_pass.groupby('neighborhood_name').head(1).iterrows():
+            print_financial_block(row, 'CURRENT_PASS')
 
-            cpu = row['cpu_current']
-            profit_margin = row['target_profit_margin']
-            total_revenue = row['current_capacity'] * row['value_per_new_unit']
-            total_cost = (row['acquisition_cost'] + (row['current_capacity'] * cpu)) * profit_margin
+    # 3. Passing ONLY under Pritzker
+    print("\n[SCENARIO 3] Feasible ONLY under Pritzker Upzoning")
+    df_pritzker_pass = df_raw[(df_raw['new_pritzker'] > 0) & (df_raw['feasible_existing'] == 0)]
+    if df_pritzker_pass.empty:
+        print("No properties pass exclusively under Pritzker upzoning.")
+    else:
+        for _, row in df_pritzker_pass.groupby('neighborhood_name').head(1).iterrows():
+            print_financial_block(row, 'PRITZKER_PASS')
 
-            print(f"   📊 MARKET MULTIPLIER: {row['market_correction_multiplier']:.2f}x (Applied to Tax Assessed Value of ${assessed_val:,.0f})")
-            print(f"   💰 MATH: Acq Cost: ${row['acquisition_cost']:,.0f} + Construction: ${(row['current_capacity']*cpu):,.0f} = Total Cost: ${total_cost:,.0f} (inc. {profit_margin}x profit target)")
-            print(f"            Expected Revenue: ${total_revenue:,.0f}   <-- FAILED ROI")
-            print("-" * 80)
+    # 4. Passing ONLY under SB79
+    print("\n[SCENARIO 4] Feasible ONLY under True CA SB79 Transit Upzoning")
+    df_sb79_pass = df_raw[(df_raw['add_true_sb79'] > 0) & (df_raw['new_pritzker'] == 0) & (df_raw['feasible_existing'] == 0)]
+    if df_sb79_pass.empty:
+        print("No properties pass exclusively under SB79 transit upzoning.")
+    else:
+        for _, row in df_sb79_pass.groupby('neighborhood_name').head(1).iterrows():
+            print_financial_block(row, 'SB79_PASS')
 
     con.close()
 
