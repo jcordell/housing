@@ -12,8 +12,7 @@ WITH combined AS (
         up.prop_address,
         up.market_correction_multiplier,
 
-        {{ default_rent_per_sqft }} as rent_per_sqft,
-        {{ default_cap_rate }} as cap_rate,
+        dcv.condo_price_per_sqft,
         {{ cost_2_4_units }} as cost_2_4_units,
         {{ cost_5_15_units }} as cost_5_15_units,
         {{ cost_15_plus_units }} as cost_15_plus_units,
@@ -25,16 +24,17 @@ WITH combined AS (
         {{ unit_size_sqft }} as unit_size_sqft
 
     FROM unified_properties up
+    LEFT JOIN dynamic_condo_values dcv ON up.neighborhood_name = dcv.neighborhood_name
 ),
 capacities AS (
     SELECT *,
-        (rent_per_sqft * unit_size_sqft * 12.0) / cap_rate as value_per_new_unit,
+        (condo_price_per_sqft * unit_size_sqft) as value_per_new_unit,
         GREATEST(
             (tot_bldg_value + tot_land_value) * market_correction_multiplier,
             area_sqft * acq_cost_floor_per_sqft
         ) as acquisition_cost,
 
-        LEAST(150, GREATEST(1, CASE
+        LEAST(150, FLOOR(area_sqft / 400), GREATEST(1, CASE
             WHEN zone_class LIKE 'RS-1%' OR zone_class LIKE 'RS-2%' THEN FLOOR(area_sqft / 5000)
             WHEN zone_class LIKE 'RS-3%' THEN FLOOR(area_sqft / 2500)
             WHEN zone_class LIKE 'RT-3.5%' THEN FLOOR(area_sqft / 1250)
@@ -46,27 +46,27 @@ capacities AS (
             WHEN zone_class LIKE '%-5' OR zone_class LIKE '%-6' THEN FLOOR(area_sqft / 200)
             ELSE FLOOR(area_sqft / 1000) END)) as current_capacity,
 
-        LEAST(150, CASE
+        LEAST(150, FLOOR(area_sqft / 400), CASE
             WHEN zone_class SIMILAR TO '(RS|RT|RM).*' THEN
                 CASE WHEN area_sqft < 2500 THEN 1 WHEN area_sqft < 5000 THEN 4 WHEN area_sqft < 7500 THEN 6 ELSE 8 END
             ELSE 0 END) as pritzker_capacity,
 
-        LEAST(150, CASE
+        LEAST(150, FLOOR(area_sqft / 400), CASE
             WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120)
             WHEN is_train_2640 OR is_brt_1320 OR hf_bus_count >= 2 THEN FLOOR((area_sqft / 43560.0) * 100)
             WHEN is_brt_2640 THEN FLOOR((area_sqft / 43560.0) * 80)
             ELSE 0 END) as cap_true_sb79,
 
-        LEAST(150, CASE
+        LEAST(150, FLOOR(area_sqft / 400), CASE
             WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120)
             WHEN is_train_2640 THEN FLOOR((area_sqft / 43560.0) * 100)
             ELSE 0 END) as cap_train_only,
 
-        LEAST(150, CASE
+        LEAST(150, FLOOR(area_sqft / 400), CASE
             WHEN is_train_2640 AND is_hf_1320 THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END
             ELSE 0 END) as cap_train_and_hf_bus,
 
-        LEAST(150, CASE
+        LEAST(150, FLOOR(area_sqft / 400), CASE
             WHEN is_train_2640 AND (is_hf_1320 OR all_bus_count >= 2) THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END
             ELSE 0 END) as cap_train_and_bus_combo
     FROM combined

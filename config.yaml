@@ -33,8 +33,7 @@ urls:
 economic_assumptions:
   target_profit_margin: 1.15
   unit_size_sqft: 800.0
-  default_rent_per_sqft: 2.00
-  default_cap_rate: 0.055
+  default_condo_price_per_sqft: 350.0
   cost_2_4_units: 240000.0
   cost_5_15_units: 288000.0
   cost_15_plus_units: 336000.0

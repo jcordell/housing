@@ -45,20 +45,24 @@ def run_sandbox():
     for status, count in status_counts.items():
         print(f"{count:7,d} parcels -> {status}")
 
-    print("\n🔍 DEBUG LOG: Sample of properties marked 'feasible_existing' ====================================\n")
-    df_feasible = df_raw[df_raw['feasible_existing'] > 0]
+    print("\n📊 DEBUG LOG: Calculated Neighborhood Condo Prices ================================")
+    df_condos = con.execute("SELECT * FROM dynamic_condo_values").df()
+    print(df_condos.to_string(index=False))
 
-    if df_feasible.empty:
-        print("No feasible properties found! Check your constraints.")
+    print("\n🔍 DEBUG LOG: Sample of properties failing due to ROI =============================\n")
+    df_failed_roi = df_raw[df_raw['status'] == '❌ Failed: Not Profitable (Pro Forma ROI)']
+
+    if df_failed_roi.empty:
+        print("No properties failed strictly due to ROI.")
     else:
-        sample_df = df_feasible.groupby('neighborhood_name').head(2)
+        sample_df = df_failed_roi.groupby('neighborhood_name').head(2)
         for _, row in sample_df.iterrows():
             clean_addr = str(row['prop_address']).title() if pd.notnull(row['prop_address']) else 'Unknown Address'
             assessed_val = row['tot_bldg_value'] + row['tot_land_value']
 
             print(f"📍 {row['neighborhood_name']} | {clean_addr} | Zone: {row['zone_class']} | Area: {row['area_sqft']:,.0f} sqft")
             print(f"   🏠 EXISTING: {row['existing_units']} units | Age: {row['building_age']} yrs | Sqft: {row['existing_sqft']} | Class: {row['primary_prop_class']}")
-            print(f"   📈 PROPOSED: {row['current_capacity']} units | Value/Unit: ${row['value_per_new_unit']:,.0f}")
+            print(f"   📈 PROPOSED: {row['current_capacity']} units | Projected Condo Sell Price: ${row['value_per_new_unit']:,.0f} per unit")
 
             cpu = row['cpu_current']
             profit_margin = row['target_profit_margin']
@@ -66,8 +70,8 @@ def run_sandbox():
             total_cost = (row['acquisition_cost'] + (row['current_capacity'] * cpu)) * profit_margin
 
             print(f"   📊 MARKET MULTIPLIER: {row['market_correction_multiplier']:.2f}x (Applied to Tax Assessed Value of ${assessed_val:,.0f})")
-            print(f"   💰 MATH: Acq Cost: ${row['acquisition_cost']:,.0f} + Construction: ${(row['current_capacity']*cpu):,.0f} = Total Cost: ${total_cost:,.0f} (inc. profit)")
-            print(f"            Expected Revenue: ${total_revenue:,.0f}")
+            print(f"   💰 MATH: Acq Cost: ${row['acquisition_cost']:,.0f} + Construction: ${(row['current_capacity']*cpu):,.0f} = Total Cost: ${total_cost:,.0f} (inc. {profit_margin}x profit target)")
+            print(f"            Expected Revenue: ${total_revenue:,.0f}   <-- FAILED ROI")
             print("-" * 80)
 
     con.close()
