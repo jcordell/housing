@@ -245,22 +245,27 @@ I then manually verified the list and removed some outliers or lots that have be
 If these vacant side lots were taxed at the exact same rate per square foot as the neighboring home they are attached to, the city would collect an estimated **${{ lost_tax }}** in additional property taxes every single year.
 
 ## The Upzoning Solution
-Illinois law makes it difficult to heavily tax vacant residential land based purely on highest-and-best-use due to constitutional uniformity clauses. However, upzoning provides a legal pathway to raise some taxes. The recently announced BUILD act legalizes 4 unit condos on these parcels by-right, which will increase the underlying land value. The property taxes will rise organically, forcing owners to either pay a larger (but still subsidized) premium for their private park or sell it to a developer.
+Illinois law makes it difficult to heavily tax vacant residential land based purely on highest-and-best-use due to constitutional uniformity clauses. However, upzoning provides a legal pathway to raise some taxes. The recently announced BUILD act legalizes 4 unit condos on these parcels by-right, which will increase the underlying land value. The property taxes will rise organically, and owners to either pay a slightly larger (but still heavily subsidized) premium for their private park or sell it to a developer.
 
-Assuming each of these **{{ lots_count }}** lots was redeveloped into a 4-unit building (valued at approx. **${{ bldg_value }}** total per building):
+<div class="callout">
+Every year a luxury side yard remains a private park, we lose <strong>${{ lost_tax }}</strong> in direct revenue because these lots are taxed as "vacant" rather than as the high-value residential land they actually serve as. 
+<br>
+<br>
 
-* **New Housing Units Built:** {{ new_units }} units
-* **New Total Tax Revenue:** ${{ upzoned_tax }} per year
-* **Net Increase in Taxes:** ${{ net_tax_increase }} per year
+But the true "opportunity subsidy" is much higher. By allowing these parcels to sit idle in high-demand neighborhoods, the city is effectively walking away from <strong>${{ net_tax_increase }}</strong> in annual tax revenue that would be generated if these lots were developed into the 4-unit buildings allowed under the BUILD Act.
+<br>
+<br>
+
+<strong>Chicago is subsidizing the exclusivity of the wealthy over $23 million every single year while missing out on {{ new_units }} much needed houses.</strong>
+</div>
 
 ## Park Proximity
 
-Even if owners choose to sell rather than pay the updated tax rate, they stand to gain significantly from the increased land value that comes with higher-density zoning.  And while they might lose their private green space, **{{ pct_under_5_min }}%** of these lots are a 5 minute or less walk from the nearest park. Some of them are even directly next to a park, like this one in Lakeview East.
+Even if owners choose to sell rather than pay the slightly increased tax rate, they stand to gain significantly from the increased land value that comes with higher-density zoning.  And while they might lose their private green space, **{{ pct_under_5_min }}%** of these lots are a 5 minute or less walk from the nearest park. Some of them are even directly next to a park, like this one in Lakeview East.
 
 ![View of an empty lot from a park](images/from-park.png)
 """
 
-    # Format numbers for the template
     template_data = {
         'lots_count': f"{lots_count:,}",
         'lost_tax': f"{lost_tax:,.0f}",
@@ -273,7 +278,6 @@ Even if owners choose to sell rather than pay the updated tax rate, they stand t
 
     jinja_template = Template(markdown_content)
     populated_md = jinja_template.render(**template_data)
-
     article_html = markdown.markdown(populated_md, extensions=['tables'])
 
     final_html = f"""
@@ -287,12 +291,13 @@ Even if owners choose to sell rather than pay the updated tax rate, they stand t
         <style>
             .prose h1 {{ font-size: 2.25rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937; line-height: 1.2; }}
             .prose h2 {{ font-size: 1.5rem; font-weight: bold; margin-top: 2rem; margin-bottom: 0.75rem; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.5rem;}}
-            .prose h3 {{ font-size: 1.25rem; font-weight: bold; margin-top: 1.5rem; margin-bottom: 0.5rem; color: #4b5563; }}
+            .prose h3 {{ font-size: 1.25rem; font-weight: bold; margin-top: 1.25rem; margin-bottom: 0.5rem; color: #4b5563; }}
             .prose p {{ margin-bottom: 1rem; color: #4b5563; line-height: 1.7; }}
-            .prose ul {{ list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1rem; color: #4b5563; line-height: 1.7; }}
-            .prose li {{ margin-bottom: 0.5rem; }}
-            .prose strong {{ color: #111827; }}
-            .prose img {{ margin-top: 1.5rem; margin-bottom: 1.5rem; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); width: 100%; }}
+            .prose ul {{ list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1.25rem; }}
+            .prose li {{ margin-bottom: 0.5rem; color: #4b5563; line-height: 1.7; }}
+            .callout {{ background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 1.5rem; margin: 2rem 0; border-radius: 0.5rem; }}
+            .callout p {{ margin-bottom: 1rem; color: #991b1b; font-size: 1.125rem; }}
+            .prose img {{ margin-top: 1.5rem; margin-bottom: 1.5rem; border-radius: 0.75rem; width: 100%; }}
         </style>
     </head>
     <body class="bg-gray-50 font-sans antialiased">
@@ -313,9 +318,7 @@ Even if owners choose to sell rather than pay the updated tax rate, they stand t
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(final_html)
 
-    print(f"✅ Success! Article generated and saved to {output_file}")
-
-    # Auto-open in browser
+    print(f"✅ Success! Article generated: {output_file}")
     try:
         webbrowser.open('file://' + os.path.realpath(output_file))
     except:
