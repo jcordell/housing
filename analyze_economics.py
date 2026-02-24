@@ -16,19 +16,21 @@ def run_analysis():
         # Load base neighborhood aggregations
         df_neighborhoods = con.execute("SELECT * FROM neighborhood_results ORDER BY tot_train_and_bus_combo DESC").df()
 
-        # Calculate the FAR-bump exclusive units using the constrained add_true_sb79 column
+        # Calculate the FAR-bump exclusive units
+        # Restricted to yield_sb79 <= 4 because anything larger requires SB79's density increases,
+        # not just the FAR bump over Pritzker's 4-flat baseline.
         far_query = """
                     SELECT SUM(add_true_sb79)
                     FROM step5_pro_forma
                     WHERE add_true_sb79 > 0
-                      AND yield_pritzker = 0
+                      AND yield_sb79 <= 4
                       AND zone_class SIMILAR TO '(RS|RT|RM).*' \
                     """
         far_result = con.execute(far_query).fetchone()
         far_bump_units = far_result[0] if far_result and far_result[0] else 0
 
-        # Calculate total SB79 exclusive units to get the accurate percentage
-        total_exclusive_query = "SELECT SUM(add_true_sb79) FROM step5_pro_forma WHERE add_true_sb79 > 0 AND yield_pritzker = 0"
+        # Calculate total additional SB79 units to get the accurate overall percentage
+        total_exclusive_query = "SELECT SUM(add_true_sb79) FROM step5_pro_forma WHERE add_true_sb79 > 0"
         excl_result = con.execute(total_exclusive_query).fetchone()
         total_excl_units = excl_result[0] if excl_result and excl_result[0] else 0
 

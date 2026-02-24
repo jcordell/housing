@@ -16,7 +16,7 @@ Illinois is facing a severe housing shortage. Governor Pritzker’s proposed BUI
 
 This proposal analyzes adding a Transit-Oriented Development (TOD) amendment similar to California's recently passed SB79.
 
-SB 79 effectively legalizes **5 to 10-story mid-rise apartment buildings**, similar to the many courtyard buildings already built everywhere in Chicago, by guaranteeing baseline densities of 100 to 120 units per acre near high-frequency transit hubs. It overrides local exclusionary zoning and limits restrictive parking minimums, allowing dense, walkable communities in areas where the land values are highest. It also **increases Floor Area Ratio (FAR)** to between 2.5 to 4.5 depending on distance and transit stop type.
+SB 79 effectively legalizes **5 to 10-story mid-rise apartment buildings**, similar to the many courtyard buildings already built everywhere in Chicago, by guaranteeing baseline densities of 100 to 120 units per acre near high-frequency transit hubs. It overrides local exclusionary zoning and limits restrictive parking minimums, allowing dense, walkable communities in areas where the land values are highest. It also **increases Floor Area Ratio (FAR)** to between 2.5 to 4.5 depending on distance to the nearest transit stop.
 
 ## Analysis and Methodology: Defining "Feasible" Redevelopment
 
