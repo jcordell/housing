@@ -1,4 +1,4 @@
-CREATEsymotion-prefix) OR REPLACE TABLE step5_pro_forma AS
+CREATE OR REPLACE TABLE step5_pro_forma AS
 WITH combined AS (
     SELECT
         up.center_geom, up.neighborhood_name, up.area_sqft, up.zone_class, up.parcels_combined,

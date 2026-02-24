@@ -148,9 +148,8 @@ Modeling has not yet included the ARO in these calculations. To prevent severely
 ## Transit Proximity Policy Options
 We analyzed four different legislative requirements for triggering transit-based upzoning. We compared the base SB79 text (upzoning units near Trains OR Bus Intersections) to alternatives requiring varying levels of access to transportation.
 
-*(Note: Data filtered for financial feasibility. Parcels are only counted if the zoning allows a significant multiplier over existing capacity).*
-
-We calculated the following housing capacity increases for each proposal:
+We calculated the following housing units financially feasible to be built. Note **these are not projected number of houses to be built**, rather the *sum of all potentially profitable multi family housing units*.
+As more multi family is built, other projects may become less profitable or land values may increase, so this is an overprojection of realistic housing unit projections.
 
 | Proposal Name | Nearby Transit Requirement | Total New Housing Units | Additional vs Pritzker |
 | :--- | :--- | :--- | :--- |
@@ -160,12 +159,6 @@ We calculated the following housing capacity increases for each proposal:
 | **3. Train Only** | Strictly CTA rail stations. | **{{ train_only_total }}** | **{{ train_only_diff }}** |
 | **4. Train + Bus Options** | Train AND (HF bus OR any 2 bus lines). | **{{ train_combo_total }}** | **{{ train_combo_diff }}** |
 | **5. Train + HF Bus** | Train AND a 10-min frequency bus stop. | **{{ train_hf_total }}** | **{{ train_hf_diff }}** |
-
-## The Importance of Floor Area Ratio (FAR) Near Transit
-
-BUILD act appears to currently set FAR to 1.5. SB79 set FAR to 3.0 for projects near transit, scaling up to 4.0 with projects directly next to transit.
-
-Our model shows that **{{ far_bump_units }}** new homes accounting for **{{ pct_far_bump }}%** of the housing unlocked in our SB 79 scenario do not require further zoning changes beyond what the BUILD Act proposes. They become financially feasible to build strictly by allowing a higher FAR (3.0 within 1/2 mile of transit).
 
 <br>
 
