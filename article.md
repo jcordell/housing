@@ -4,7 +4,7 @@ Illinois is facing a severe housing shortage. Governor Pritzker’s proposed BUI
 
 This proposal analyzes adding a Transit-Oriented Development (TOD) amendment similar to California's recently passed SB79.
 
-SB 79 effectively legalizes **5 to 10-story mid-rise apartment buildings**, similar to the many courtyard buildings already built everywhere in Chicago, by guaranteeing baseline densities of 100 to 120 units per acre near high-frequency transit hubs. It overrides local exclusionary zoning and limits restrictive parking minimums, allowing dense, walkable communities in areas where the land values are highest.
+SB 79 effectively legalizes **5 to 10-story mid-rise apartment buildings**, similar to the many courtyard buildings already built everywhere in Chicago, by guaranteeing baseline densities of 100 to 120 units per acre near high-frequency transit hubs. It overrides local exclusionary zoning and limits restrictive parking minimums, allowing dense, walkable communities in areas where the land values are highest. It also *increases FAR* to between 2.5 to 4.5 depending on distance and transit stop type.
 
 ## Analysis and Methodology: Defining "Feasible" Redevelopment
 
@@ -148,6 +148,12 @@ We calculated the following housing capacity increases for each proposal:
 | **3. Train Only** | Strictly CTA rail stations. | **{{ train_only_total }}** | **{{ train_only_diff }}** |
 | **4. Train + Bus Options** | Train AND (HF bus OR any 2 bus lines). | **{{ train_combo_total }}** | **{{ train_combo_diff }}** |
 | **5. Train + HF Bus** | Train AND a 10-min frequency bus stop. | **{{ train_hf_total }}** | **{{ train_hf_diff }}** |
+
+## The Importance of Floor Area Ratio (FAR) Near Transit
+
+BUILD act appears to currently set FAR to 1.5. SB79 set FAR to 3.0 for projects near transit, scaling up to 4.0 with projects directly next to transit.
+
+Our model shows that **{{ far_bump_units }}** new homes accounting for **{{ pct_far_bump }}%** of the housing unlocked in our SB 79 scenario do not require further zoning changes beyond what the BUILD Act proposes. They become financially feasible to build strictly by allowing a higher FAR (3.0 within 1/2 mile of transit).
 
 <br>
 
