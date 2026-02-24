@@ -35,6 +35,7 @@ def setup_database(config):
         config['files']['neighborhoods_geojson']: 'neighborhoods',
         config['files']['cta_stations_geojson']: 'transit_stops',
         config['files']['cta_bus_routes_geojson']: 'bus_routes',
+        config['files']['chicago_parks_geojson']: 'parks',
         config['files']['assessor_universe_csv']: 'assessor_universe',
         config['files']['assessed_values_2023_csv']: 'assessed_values',
         config['files']['res_characteristics_csv']: 'res_characteristics',
