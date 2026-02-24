@@ -255,7 +255,7 @@ Assuming each of these **{{ lots_count }}** lots was redeveloped into a 4-unit b
 
 ## Park Proximity
 
-Even if owners choose to sell rather than pay the updated tax rate, they stand to gain significantly from the increased land value that comes with higher-density zoning.  And while they might lose their private green space, **{{ pct_under_5_min }}%** of these lots are only a 5 minute or less walk from the nearest park. Some of them are even directly next to a park, like this one in Lakeview East.
+Even if owners choose to sell rather than pay the updated tax rate, they stand to gain significantly from the increased land value that comes with higher-density zoning.  And while they might lose their private green space, **{{ pct_under_5_min }}%** of these lots are a 5 minute or less walk from the nearest park. Some of them are even directly next to a park, like this one in Lakeview East.
 
 ![View of an empty lot from a park](images/from-park.png)
 """
