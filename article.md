@@ -125,15 +125,15 @@ Construction costs are scaled geographically, and Net Rentable Area (NRA) is adj
 
 To be marked as "feasible," the numbers must pencil out for a developer, and the pipeline must pick the most logical zoning scenario to apply:
 
-### 9. Affordable Requirements Ordinance (ARO)
-Modeling has not yet included the ARO in these calculations. To prevent severely overcounting high unit buildings in this analysis, and to keep the focus on "missing middle", we set a cap of any redevelopment would have *max 20 units*.
-
-This analysis also does not look at building or other subsidies and focuses only on unsubsidised market rate units.
-
 * **Profit Hurdle:** The Estimated Total Revenue must exceed the Estimated Total Cost by at least a 15% margin (`target_profit_margin = 1.15`).
 
 * **Highest and Best Use (HBU) Ratchet:** The model evaluates profitability across all baseline scenarios (Current Zoning, Pritzker, SB79). Parcels fall through a waterfall logic that strictly prioritizes **absolute profit maximization**:
   * A denser zoning policy only overrides a less dense baseline *if* the developer's absolute net profit increases (`profit_new > max_profit_current`).
+
+### 9. Affordable Requirements Ordinance (ARO)
+Modeling has not yet included the ARO in these calculations. To prevent severely overcounting high unit buildings in this analysis, and to keep the focus on "missing middle", we set a cap of any redevelopment would have *max 20 units*.
+
+This analysis also does not look at building or other subsidies and focuses only on unsubsidised market rate units.
 
 ## Transit Proximity Policy Options
 We analyzed four different legislative requirements for triggering transit-based upzoning. We compared the base SB79 text (upzoning units near Trains OR Bus Intersections) to alternatives requiring varying levels of access to transportation.
