@@ -33,7 +33,7 @@ raw_capacities AS (
                 area_sqft * acq_cost_floor_per_sqft
             )
         END as acq_cost,
-        LEAST(150, FLOOR(area_sqft / 400), GREATEST(1, CASE
+        LEAST({{ max_units }}, FLOOR(area_sqft / 400), GREATEST(1, CASE
             WHEN zone_class LIKE 'RS-1%' OR zone_class LIKE 'RS-2%' THEN FLOOR(area_sqft / 5000)
             WHEN zone_class LIKE 'RS-3%' THEN FLOOR(area_sqft / 2500)
             WHEN zone_class LIKE 'RT-3.5%' THEN FLOOR(area_sqft / 1250)
@@ -44,11 +44,11 @@ raw_capacities AS (
             WHEN zone_class LIKE '%-2' OR zone_class LIKE '%-3' THEN FLOOR(area_sqft / 400)
             WHEN zone_class LIKE '%-5' OR zone_class LIKE '%-6' THEN FLOOR(area_sqft / 200)
             ELSE FLOOR(area_sqft / 1000) END)) as cap_curr_raw,
-        LEAST(150, FLOOR(area_sqft / 400), CASE WHEN zone_class SIMILAR TO '(RS|RT|RM).*' THEN CASE WHEN area_sqft < 2500 THEN 1 WHEN area_sqft < 5000 THEN 4 WHEN area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END) as cap_pritzker_raw,
-        LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 OR is_brt_1320 OR hf_bus_count >= 2 THEN FLOOR((area_sqft / 43560.0) * 100) WHEN is_brt_2640 THEN FLOOR((area_sqft / 43560.0) * 80) ELSE 0 END) as cap_sb79_raw,
-        LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 THEN FLOOR((area_sqft / 43560.0) * 100) ELSE 0 END) as cap_train_raw,
-        LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND is_hf_1320 THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_hf_raw,
-        LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND (is_hf_1320 OR all_bus_count >= 2) THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_combo_raw
+        LEAST({{ max_units }}, FLOOR(area_sqft / 400), CASE WHEN zone_class SIMILAR TO '(RS|RT|RM).*' THEN CASE WHEN area_sqft < 2500 THEN 1 WHEN area_sqft < 5000 THEN 4 WHEN area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END) as cap_pritzker_raw,
+        LEAST({{ max_units }}, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 OR is_brt_1320 OR hf_bus_count >= 2 THEN FLOOR((area_sqft / 43560.0) * 100) WHEN is_brt_2640 THEN FLOOR((area_sqft / 43560.0) * 80) ELSE 0 END) as cap_sb79_raw,
+        LEAST({{ max_units }}, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 THEN FLOOR((area_sqft / 43560.0) * 100) ELSE 0 END) as cap_train_raw,
+        LEAST({{ max_units }}, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND is_hf_1320 THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_hf_raw,
+        LEAST({{ max_units }}, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND (is_hf_1320 OR all_bus_count >= 2) THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_combo_raw
     FROM combined
 ),
 capacities AS (
