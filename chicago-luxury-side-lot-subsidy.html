@@ -1,0 +1,65 @@
+
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>The Side Yard Subsidy</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+            .prose h1 { font-size: 2.25rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937; line-height: 1.2; }
+            .prose h2 { font-size: 1.5rem; font-weight: bold; margin-top: 2rem; margin-bottom: 0.75rem; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.5rem;}
+            .prose h3 { font-size: 1.25rem; font-weight: bold; margin-top: 1.5rem; margin-bottom: 0.5rem; color: #4b5563; }
+            .prose p { margin-bottom: 1rem; color: #4b5563; line-height: 1.7; }
+            .prose ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1rem; color: #4b5563; line-height: 1.7; }
+            .prose li { margin-bottom: 0.5rem; }
+            .prose strong { color: #111827; }
+            .prose img { margin-top: 1.5rem; margin-bottom: 1.5rem; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); width: 100%; }
+        </style>
+    </head>
+    <body class="bg-gray-50 font-sans antialiased">
+        <div class="max-w-4xl mx-auto px-4 py-8">
+            <div class="flex flex-col gap-8">
+                <div class="bg-white p-8 md:p-12 rounded-xl shadow-lg border border-gray-100">
+                    <div class="prose max-w-none">
+                        <h1>Subsidizing the Rich: The Hidden Cost of Chicago’s Luxury Side Yards</h1>
+<p><img alt="Private basketball court on a side lot" src="images/basketball.png" /></p>
+<p>In high-demand areas, wealthy homeowners frequently purchase adjacent tear-down properties, demolish the existing structures, and absorb the parcels as massive private side yards. Because property taxes in Illinois assess vacant land drastically lower than improved land, these homeowners pay a fraction of the tax per square foot compared to their own primary residence.  Chicago effectively subsidizes these rich home owners to keep the lot empty as redeveloping the property would bring in more property taxes.</p>
+
+<p>Our analysis found <strong>463</strong> adjacent empty lots owned by neighbors in just five high-demand north and west side neighborhoods. This is likely a significant underestimate, as there are plenty of side lots lots which don't automatically match the filters described in the next section.</p>
+<h2>Analysis and Methodology: Defining the "Side Yard"</h2>
+<p>An empty lot is only counted if it passes a strict set of spatial, legal, and economic filters:</p>
+<h3>1. Spatial &amp; Zoning Filters</h3>
+<ul>
+<li><strong>Residential Zoning:</strong> The lot must be zoned exclusively for residential use (<code>RS</code>, <code>RT</code>, or <code>RM</code>).</li>
+<li><strong>Adjacency:</strong> The empty lot and the built lot must be geographically adjacent (intersecting within a 5-foot spatial tolerance).</li>
+</ul>
+<h3>2. Ownership Matching</h3>
+<ul>
+<li><strong>Taxpayer Verification:</strong> The empty lot and the adjacent home must have the exact same owner.</li>
+</ul>
+<h3>3. Value and Condition Thresholds</h3>
+<ul>
+<li><strong>The "Empty" Lot:</strong> The side lot must have an estimated building value of &lt;$10,000, signifying it is effectively vacant or a demolished teardown. It must also have a Cook County Assessor property class corresponding to vacant land or uninhabitable teardowns.</li>
+<li><strong>The Primary Residence:</strong> The adjacent home owned by the same taxpayer must have an estimated market value of at least $500,000, ensuring we are capturing high-value property expansions rather than distressed blocks.</li>
+</ul>
+<p>I then manually verified the list and removed some outliers or lots that have been developed since the data was last updated.</p>
+<h2>The Cost of the Status Quo</h2>
+<p>If these vacant side lots were taxed at the exact same rate per square foot as the neighboring home they are attached to, the city would collect an estimated <strong>$5,736,594</strong> in additional property taxes every single year.</p>
+<h2>The Upzoning Solution</h2>
+<p>Illinois law makes it difficult to heavily tax vacant residential land based purely on highest-and-best-use due to constitutional uniformity clauses. However, upzoning provides a legal pathway to raise some taxes. The recently announced BUILD act legalizes 4 unit condos on these parcels by-right, which will increase the underlying land value. The property taxes will rise organically, forcing owners to either pay a larger (but still subsidized) premium for their private park or sell it to a developer.</p>
+<p>Assuming each of these <strong>463</strong> lots was redeveloped into a 4-unit building (valued at approx. <strong>$3,000,000</strong> total per building):</p>
+<ul>
+<li><strong>New Housing Units Built:</strong> 1,852 units</li>
+<li><strong>New Total Tax Revenue:</strong> $25,002,000 per year</li>
+<li><strong>Net Increase in Taxes:</strong> $23,423,846 per year</li>
+</ul>
+<h2>Park Proximity</h2>
+<p>Even if owners choose to sell rather than pay the updated tax rate, they stand to gain significantly from the increased land value that comes with higher-density zoning.  And while they might lose their private green space, <strong>84%</strong> of these lots are only a 5 minute or less walk from the nearest park. Some of them are even directly next to a park, like this one in Lakeview East.</p>
+<p><img alt="View of an empty lot from a park" src="images/from-park.png" /></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>

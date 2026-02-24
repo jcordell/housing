@@ -5,4 +5,5 @@ __pycache__/*
 *.html
 *.csv
 !index.html
+!chicago-luxury-side-lot-subsidy.html
 data/
