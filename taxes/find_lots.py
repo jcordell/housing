@@ -309,7 +309,7 @@ Even if owners choose to sell rather than pay the updated tax rate, they stand t
     </html>
     """
 
-    output_file = 'side-lots.html'
+    output_file = 'chicago-luxury-side-lot-subsidy.html'
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(final_html)
 
