@@ -23,7 +23,6 @@ def get_financial_filter_ctes(source_table_name, eco):
     far_combo = eco.get('far_combo', 2.5)
     eff = eco.get('efficiency_factor', 0.82)
     min_unit = eco.get('min_unit_size_sqft', 750.0)
-    max_units = eco.get('max_units', 20)
 
     return f"""
         base_capacities AS (
@@ -40,7 +39,7 @@ def get_financial_filter_ctes(source_table_name, eco):
                     )
                 END as acq_cost,
 
-                LEAST({max_units}, FLOOR(area_sqft / 400), GREATEST(1, CASE 
+                LEAST(150, FLOOR(area_sqft / 400), GREATEST(1, CASE 
                     WHEN zone_class LIKE 'RS-1%' OR zone_class LIKE 'RS-2%' THEN FLOOR(area_sqft / 5000)
                     WHEN zone_class LIKE 'RS-3%' THEN FLOOR(area_sqft / 2500)
                     WHEN zone_class LIKE 'RT-3.5%' THEN FLOOR(area_sqft / 1250)
@@ -52,11 +51,11 @@ def get_financial_filter_ctes(source_table_name, eco):
                     WHEN zone_class LIKE '%-5' OR zone_class LIKE '%-6' THEN FLOOR(area_sqft / 200)
                     ELSE FLOOR(area_sqft / 1000) END)) as cap_curr_raw,
 
-                LEAST({max_units}, FLOOR(area_sqft / 400), CASE WHEN zone_class SIMILAR TO '(RS|RT|RM).*' THEN CASE WHEN area_sqft < 2500 THEN 1 WHEN area_sqft < 5000 THEN 4 WHEN area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END) as cap_pritzker_raw,
-                LEAST({max_units}, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 OR is_brt_1320 OR hf_bus_count >= 2 THEN FLOOR((area_sqft / 43560.0) * 100) WHEN is_brt_2640 THEN FLOOR((area_sqft / 43560.0) * 80) ELSE 0 END) as cap_sb79_raw,
-                LEAST({max_units}, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 THEN FLOOR((area_sqft / 43560.0) * 100) ELSE 0 END) as cap_train_raw,
-                LEAST({max_units}, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND is_hf_1320 THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_hf_raw,
-                LEAST({max_units}, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND (is_hf_1320 OR all_bus_count >= 2) THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_combo_raw
+                LEAST(150, FLOOR(area_sqft / 400), CASE WHEN zone_class SIMILAR TO '(RS|RT|RM).*' THEN CASE WHEN area_sqft < 2500 THEN 1 WHEN area_sqft < 5000 THEN 4 WHEN area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END) as cap_pritzker_raw,
+                LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 OR is_brt_1320 OR hf_bus_count >= 2 THEN FLOOR((area_sqft / 43560.0) * 100) WHEN is_brt_2640 THEN FLOOR((area_sqft / 43560.0) * 80) ELSE 0 END) as cap_sb79_raw,
+                LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 THEN FLOOR((area_sqft / 43560.0) * 100) ELSE 0 END) as cap_train_raw,
+                LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND is_hf_1320 THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_hf_raw,
+                LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND (is_hf_1320 OR all_bus_count >= 2) THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_combo_raw
             FROM {source_table_name}
         ),
         capacities AS (
@@ -74,12 +73,15 @@ def get_financial_filter_ctes(source_table_name, eco):
                 (
                     primary_prop_class IS NOT NULL 
                     AND primary_prop_class != 'UNKNOWN'
-                    AND primary_prop_class != 'EX'      -- Exclude Exempt (Churches/Gov)
-                    AND primary_prop_class != '299'     -- EXCLUDE CONDOS (Primary)
-                    AND primary_prop_class NOT LIKE '299%' -- EXCLUDE CONDOS (Secondary)
-                    AND primary_prop_class NOT LIKE '599%' -- Exclude Commercial Condos
-                    AND primary_prop_class NOT LIKE '8%'   -- Exclude most Large/Specialized
-                    AND primary_prop_class != '0'       -- Exclude Rail/Public Right of Way
+                    AND primary_prop_class != 'EX'
+                    AND primary_prop_class != '299'
+                    AND primary_prop_class NOT LIKE '299%'
+                    AND primary_prop_class NOT LIKE '599%'
+                    AND primary_prop_class NOT LIKE '8%'
+                    AND primary_prop_class != '0'
+                    AND primary_prop_class NOT LIKE '1%'
+                    AND prop_address NOT ILIKE '%CHURCH%'
+                    AND prop_address NOT ILIKE '%RELIGIOUS%'
                 ) as pass_prop_class,
                 ((tot_bldg_value + tot_land_value) >= 1000) as pass_min_value,
                 ((existing_sqft / GREATEST(area_sqft, 1.0)) < 1.5 AND area_sqft <= 43560) as pass_lot_density
@@ -89,10 +91,10 @@ def get_financial_filter_ctes(source_table_name, eco):
             SELECT *,
                 (area_sqft * {far_curr}) as gsf_curr,
                 (area_sqft * {far_pritzker}) as gsf_pritzker,
-                (area_sqft * {far_sb79}) as gsf_sb79,
-                (area_sqft * {far_train}) as gsf_train,
-                (area_sqft * {far_hf}) as gsf_hf,
-                (area_sqft * {far_combo}) as gsf_combo,
+                (area_sqft * CASE WHEN cap_sb79_raw > 0 THEN {far_sb79} ELSE {far_pritzker} END) as gsf_sb79,
+                (area_sqft * CASE WHEN cap_train_raw > 0 THEN {far_train} ELSE {far_pritzker} END) as gsf_train,
+                (area_sqft * CASE WHEN cap_hf_raw > 0 THEN {far_hf} ELSE {far_pritzker} END) as gsf_hf,
+                (area_sqft * CASE WHEN cap_combo_raw > 0 THEN {far_combo} ELSE {far_pritzker} END) as gsf_combo,
 
                 -- Current Rules (Double Stair Penalty)
                 ((area_sqft * {far_curr}) * CASE WHEN cap_curr <= 2 THEN 0.90
@@ -102,47 +104,41 @@ def get_financial_filter_ctes(source_table_name, eco):
                          ELSE 0.82 END
                 ) as nra_curr,
 
-                -- Pritzker & SB79 Rules (Single Stair Bump)
+                -- Pritzker Rules
                 ((area_sqft * {far_pritzker}) * CASE WHEN cap_pritzker <= 2 THEN 0.90
                          WHEN cap_pritzker <= 6 THEN 0.87
                          WHEN cap_pritzker <= 15 THEN 0.85
                          ELSE 0.82 END
                 ) as nra_pritzker,
 
-                ((area_sqft * {far_sb79}) * CASE WHEN cap_sb79 <= 2 THEN 0.90
+                -- Transit Options ONLY apply higher FAR if parcel actually meets transit requirement
+                ((area_sqft * CASE WHEN cap_sb79_raw > 0 THEN {far_sb79} ELSE {far_pritzker} END) * CASE WHEN cap_sb79 <= 2 THEN 0.90
                          WHEN cap_sb79 <= 6 THEN 0.87
                          WHEN cap_sb79 <= 15 THEN 0.85
                          ELSE 0.82 END
                 ) as nra_sb79,
 
-                ((area_sqft * {far_train}) * CASE WHEN cap_train_only <= 2 THEN 0.90
+                ((area_sqft * CASE WHEN cap_train_raw > 0 THEN {far_train} ELSE {far_pritzker} END) * CASE WHEN cap_train_only <= 2 THEN 0.90
                          WHEN cap_train_only <= 6 THEN 0.87
                          WHEN cap_train_only <= 15 THEN 0.85
                          ELSE 0.82 END
                 ) as nra_train,
 
-                ((area_sqft * {far_hf}) * CASE WHEN cap_train_hf <= 2 THEN 0.90
+                ((area_sqft * CASE WHEN cap_hf_raw > 0 THEN {far_hf} ELSE {far_pritzker} END) * CASE WHEN cap_train_hf <= 2 THEN 0.90
                          WHEN cap_train_hf <= 6 THEN 0.87
                          WHEN cap_train_hf <= 15 THEN 0.85
                          ELSE 0.82 END
                 ) as nra_hf,
 
-                ((area_sqft * {far_combo}) * CASE WHEN cap_train_combo <= 2 THEN 0.90
+                ((area_sqft * CASE WHEN cap_combo_raw > 0 THEN {far_combo} ELSE {far_pritzker} END) * CASE WHEN cap_train_combo <= 2 THEN 0.90
                          WHEN cap_train_combo <= 6 THEN 0.87
                          WHEN cap_train_combo <= 15 THEN 0.85
                          ELSE 0.82 END
                 ) as nra_combo
             FROM capacities
         ),
-        revenue_metrics AS (
+        unit_capacity AS (
             SELECT *,
-                (nra_curr * condo_price_per_sqft) as rev_curr,
-                (nra_pritzker * condo_price_per_sqft) as rev_pritzker,
-                (nra_sb79 * condo_price_per_sqft) as rev_sb79,
-                (nra_train * condo_price_per_sqft) as rev_train,
-                (nra_hf * condo_price_per_sqft) as rev_hf,
-                (nra_combo * condo_price_per_sqft) as rev_combo,
-                
                 LEAST(cap_curr, FLOOR(nra_curr / {min_unit})) as final_cap_curr,
                 LEAST(cap_pritzker, FLOOR(nra_pritzker / {min_unit})) as final_cap_pritzker,
                 LEAST(cap_sb79, FLOOR(nra_sb79 / {min_unit})) as final_cap_sb79,
@@ -150,6 +146,16 @@ def get_financial_filter_ctes(source_table_name, eco):
                 LEAST(cap_train_hf, FLOOR(nra_hf / {min_unit})) as final_cap_hf,
                 LEAST(cap_train_combo, FLOOR(nra_combo / {min_unit})) as final_cap_combo
             FROM financial_metrics
+        ),
+        revenue_metrics AS (
+            SELECT *,
+                (nra_curr * condo_price_per_sqft) * CASE WHEN final_cap_curr > 10 THEN 0.90 ELSE 1.0 END as rev_curr,
+                (nra_pritzker * condo_price_per_sqft) * CASE WHEN final_cap_pritzker > 10 THEN 0.90 ELSE 1.0 END as rev_pritzker,
+                (nra_sb79 * condo_price_per_sqft) * CASE WHEN final_cap_sb79 > 10 THEN 0.90 ELSE 1.0 END as rev_sb79,
+                (nra_train * condo_price_per_sqft) * CASE WHEN final_cap_train > 10 THEN 0.90 ELSE 1.0 END as rev_train,
+                (nra_hf * condo_price_per_sqft) * CASE WHEN final_cap_hf > 10 THEN 0.90 ELSE 1.0 END as rev_hf,
+                (nra_combo * condo_price_per_sqft) * CASE WHEN final_cap_combo > 10 THEN 0.90 ELSE 1.0 END as rev_combo
+            FROM unit_capacity
         ),
         profit_eval AS (
             SELECT *,

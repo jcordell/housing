@@ -13,7 +13,27 @@ def run_analysis():
 
     con = duckdb.connect(db_file)
     try:
+        # Load base neighborhood aggregations
         df_neighborhoods = con.execute("SELECT * FROM neighborhood_results ORDER BY tot_train_and_bus_combo DESC").df()
+
+        # Calculate the FAR-bump exclusive units using the constrained add_true_sb79 column
+        far_query = """
+                    SELECT SUM(add_true_sb79)
+                    FROM step5_pro_forma
+                    WHERE add_true_sb79 > 0
+                      AND yield_pritzker = 0
+                      AND zone_class SIMILAR TO '(RS|RT|RM).*' \
+                    """
+        far_result = con.execute(far_query).fetchone()
+        far_bump_units = far_result[0] if far_result and far_result[0] else 0
+
+        # Calculate total SB79 exclusive units to get the accurate percentage
+        total_exclusive_query = "SELECT SUM(add_true_sb79) FROM step5_pro_forma WHERE add_true_sb79 > 0 AND yield_pritzker = 0"
+        excl_result = con.execute(total_exclusive_query).fetchone()
+        total_excl_units = excl_result[0] if excl_result and excl_result[0] else 0
+
+        pct_far_bump = (far_bump_units / total_excl_units * 100) if total_excl_units > 0 else 0
+
     except Exception:
         con.close()
         return None, None
@@ -99,7 +119,9 @@ def run_analysis():
         'sfh_yield': f"${sfh_yield_per_acre:,.0f}",
         'four_flat_yield': f"${four_flat_yield_per_acre:,.0f}",
         'midrise_yield': f"${midrise_yield_per_acre:,.0f}",
-        'tax_multiplier': f"{tax_multiplier:.1f}"
+        'tax_multiplier': f"{tax_multiplier:.1f}",
+        'far_bump_units': f"{far_bump_units:,.0f}",
+        'pct_far_bump': f"{pct_far_bump:.1f}"
     }
 
     return df_neighborhoods, template_data

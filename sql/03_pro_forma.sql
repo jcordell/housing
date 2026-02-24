@@ -33,7 +33,7 @@ raw_capacities AS (
                 area_sqft * acq_cost_floor_per_sqft
             )
         END as acq_cost,
-        LEAST({{ max_units }}, FLOOR(area_sqft / 400), GREATEST(1, CASE
+        LEAST(150, FLOOR(area_sqft / 400), GREATEST(1, CASE
             WHEN zone_class LIKE 'RS-1%' OR zone_class LIKE 'RS-2%' THEN FLOOR(area_sqft / 5000)
             WHEN zone_class LIKE 'RS-3%' THEN FLOOR(area_sqft / 2500)
             WHEN zone_class LIKE 'RT-3.5%' THEN FLOOR(area_sqft / 1250)
@@ -44,11 +44,11 @@ raw_capacities AS (
             WHEN zone_class LIKE '%-2' OR zone_class LIKE '%-3' THEN FLOOR(area_sqft / 400)
             WHEN zone_class LIKE '%-5' OR zone_class LIKE '%-6' THEN FLOOR(area_sqft / 200)
             ELSE FLOOR(area_sqft / 1000) END)) as cap_curr_raw,
-        LEAST({{ max_units }}, FLOOR(area_sqft / 400), CASE WHEN zone_class SIMILAR TO '(RS|RT|RM).*' THEN CASE WHEN area_sqft < 2500 THEN 1 WHEN area_sqft < 5000 THEN 4 WHEN area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END) as cap_pritzker_raw,
-        LEAST({{ max_units }}, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 OR is_brt_1320 OR hf_bus_count >= 2 THEN FLOOR((area_sqft / 43560.0) * 100) WHEN is_brt_2640 THEN FLOOR((area_sqft / 43560.0) * 80) ELSE 0 END) as cap_sb79_raw,
-        LEAST({{ max_units }}, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 THEN FLOOR((area_sqft / 43560.0) * 100) ELSE 0 END) as cap_train_raw,
-        LEAST({{ max_units }}, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND is_hf_1320 THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_hf_raw,
-        LEAST({{ max_units }}, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND (is_hf_1320 OR all_bus_count >= 2) THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_combo_raw
+        LEAST(150, FLOOR(area_sqft / 400), CASE WHEN zone_class SIMILAR TO '(RS|RT|RM).*' THEN CASE WHEN area_sqft < 2500 THEN 1 WHEN area_sqft < 5000 THEN 4 WHEN area_sqft < 7500 THEN 6 ELSE 8 END ELSE 0 END) as cap_pritzker_raw,
+        LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 OR is_brt_1320 OR hf_bus_count >= 2 THEN FLOOR((area_sqft / 43560.0) * 100) WHEN is_brt_2640 THEN FLOOR((area_sqft / 43560.0) * 80) ELSE 0 END) as cap_sb79_raw,
+        LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) WHEN is_train_2640 THEN FLOOR((area_sqft / 43560.0) * 100) ELSE 0 END) as cap_train_raw,
+        LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND is_hf_1320 THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_hf_raw,
+        LEAST(150, FLOOR(area_sqft / 400), CASE WHEN is_train_2640 AND (is_hf_1320 OR all_bus_count >= 2) THEN CASE WHEN is_train_1320 THEN FLOOR((area_sqft / 43560.0) * 120) ELSE FLOOR((area_sqft / 43560.0) * 100) END ELSE 0 END) as cap_combo_raw
     FROM combined
 ),
 capacities AS (
@@ -65,7 +65,10 @@ capacities AS (
         (
             primary_prop_class IS NOT NULL
             AND primary_prop_class NOT IN ('UNKNOWN', 'EX', '0', '1', '4', '93')
+            AND primary_prop_class != '299'
             AND primary_prop_class NOT LIKE '299%'
+            AND primary_prop_class NOT LIKE '599%'
+            AND primary_prop_class NOT LIKE '8%'
             AND primary_prop_class NOT LIKE '0%'
             AND primary_prop_class NOT LIKE '1%'
             AND prop_address NOT ILIKE '%CHURCH%'
@@ -79,28 +82,51 @@ financial_metrics AS (
     SELECT *,
         (area_sqft * {{ far_current }}) as gsf_curr,
         (area_sqft * {{ far_pritzker }}) as gsf_pritzker,
-        (area_sqft * {{ far_sb79 }}) as gsf_sb79,
-        (area_sqft * {{ far_train }}) as gsf_train,
-        (area_sqft * {{ far_hf }}) as gsf_hf,
-        (area_sqft * {{ far_combo }}) as gsf_combo,
+        (area_sqft * CASE WHEN cap_sb79_raw > 0 THEN {{ far_sb79 }} ELSE {{ far_pritzker }} END) as gsf_sb79,
+        (area_sqft * CASE WHEN cap_train_raw > 0 THEN {{ far_train }} ELSE {{ far_pritzker }} END) as gsf_train,
+        (area_sqft * CASE WHEN cap_hf_raw > 0 THEN {{ far_hf }} ELSE {{ far_pritzker }} END) as gsf_hf,
+        (area_sqft * CASE WHEN cap_combo_raw > 0 THEN {{ far_combo }} ELSE {{ far_pritzker }} END) as gsf_combo,
 
-        ((area_sqft * {{ far_current }}) * {{ efficiency_factor }}) as nra_curr,
-        ((area_sqft * {{ far_pritzker }}) * {{ efficiency_factor }}) as nra_pritzker,
-        ((area_sqft * {{ far_sb79 }}) * {{ efficiency_factor }}) as nra_sb79,
-        ((area_sqft * {{ far_train }}) * {{ efficiency_factor }}) as nra_train,
-        ((area_sqft * {{ far_hf }}) * {{ efficiency_factor }}) as nra_hf,
-        ((area_sqft * {{ far_combo }}) * {{ efficiency_factor }}) as nra_combo
+        ((area_sqft * {{ far_current }}) * CASE WHEN cap_curr <= 2 THEN 0.90
+                 WHEN cap_curr <= 4 THEN 0.75
+                 WHEN cap_curr <= 9 THEN 0.78
+                 WHEN cap_curr <= 19 THEN 0.80
+                 ELSE 0.82 END
+        ) as nra_curr,
+
+        ((area_sqft * {{ far_pritzker }}) * CASE WHEN cap_pritzker <= 2 THEN 0.90
+                 WHEN cap_pritzker <= 6 THEN 0.87
+                 WHEN cap_pritzker <= 15 THEN 0.85
+                 ELSE 0.82 END
+        ) as nra_pritzker,
+
+        ((area_sqft * CASE WHEN cap_sb79_raw > 0 THEN {{ far_sb79 }} ELSE {{ far_pritzker }} END) * CASE WHEN cap_sb79 <= 2 THEN 0.90
+                 WHEN cap_sb79 <= 6 THEN 0.87
+                 WHEN cap_sb79 <= 15 THEN 0.85
+                 ELSE 0.82 END
+        ) as nra_sb79,
+
+        ((area_sqft * CASE WHEN cap_train_raw > 0 THEN {{ far_train }} ELSE {{ far_pritzker }} END) * CASE WHEN cap_train_only <= 2 THEN 0.90
+                 WHEN cap_train_only <= 6 THEN 0.87
+                 WHEN cap_train_only <= 15 THEN 0.85
+                 ELSE 0.82 END
+        ) as nra_train,
+
+        ((area_sqft * CASE WHEN cap_hf_raw > 0 THEN {{ far_hf }} ELSE {{ far_pritzker }} END) * CASE WHEN cap_train_hf <= 2 THEN 0.90
+                 WHEN cap_train_hf <= 6 THEN 0.87
+                 WHEN cap_train_hf <= 15 THEN 0.85
+                 ELSE 0.82 END
+        ) as nra_hf,
+
+        ((area_sqft * CASE WHEN cap_combo_raw > 0 THEN {{ far_combo }} ELSE {{ far_pritzker }} END) * CASE WHEN cap_train_combo <= 2 THEN 0.90
+                 WHEN cap_train_combo <= 6 THEN 0.87
+                 WHEN cap_train_combo <= 15 THEN 0.85
+                 ELSE 0.82 END
+        ) as nra_combo
     FROM capacities
 ),
-revenue_metrics AS (
+unit_capacity AS (
     SELECT *,
-        (nra_curr * condo_price_per_sqft) as rev_curr,
-        (nra_pritzker * condo_price_per_sqft) as rev_pritzker,
-        (nra_sb79 * condo_price_per_sqft) as rev_sb79,
-        (nra_train * condo_price_per_sqft) as rev_train,
-        (nra_hf * condo_price_per_sqft) as rev_hf,
-        (nra_combo * condo_price_per_sqft) as rev_combo,
-
         LEAST(cap_curr, FLOOR(nra_curr / min_unit_size_sqft)) as final_cap_curr,
         LEAST(cap_pritzker, FLOOR(nra_pritzker / min_unit_size_sqft)) as final_cap_pritzker,
         LEAST(cap_sb79, FLOOR(nra_sb79 / min_unit_size_sqft)) as final_cap_sb79,
@@ -108,6 +134,16 @@ revenue_metrics AS (
         LEAST(cap_train_hf, FLOOR(nra_hf / min_unit_size_sqft)) as final_cap_hf,
         LEAST(cap_train_combo, FLOOR(nra_combo / min_unit_size_sqft)) as final_cap_combo
     FROM financial_metrics
+),
+revenue_metrics AS (
+    SELECT *,
+        (nra_curr * condo_price_per_sqft) * CASE WHEN final_cap_curr > 10 THEN 0.90 ELSE 1.0 END as rev_curr,
+        (nra_pritzker * condo_price_per_sqft) * CASE WHEN final_cap_pritzker > 10 THEN 0.90 ELSE 1.0 END as rev_pritzker,
+        (nra_sb79 * condo_price_per_sqft) * CASE WHEN final_cap_sb79 > 10 THEN 0.90 ELSE 1.0 END as rev_sb79,
+        (nra_train * condo_price_per_sqft) * CASE WHEN final_cap_train > 10 THEN 0.90 ELSE 1.0 END as rev_train,
+        (nra_hf * condo_price_per_sqft) * CASE WHEN final_cap_hf > 10 THEN 0.90 ELSE 1.0 END as rev_hf,
+        (nra_combo * condo_price_per_sqft) * CASE WHEN final_cap_combo > 10 THEN 0.90 ELSE 1.0 END as rev_combo
+    FROM unit_capacity
 ),
 profit_eval AS (
     SELECT *,
