@@ -149,10 +149,6 @@ We calculated the following housing capacity increases for each proposal:
 | **4. Train + Bus Options** | Train AND (HF bus OR any 2 bus lines). | **{{ train_combo_total }}** | **{{ train_combo_diff }}** |
 | **5. Train + HF Bus** | Train AND a 10-min frequency bus stop. | **{{ train_hf_total }}** | **{{ train_hf_diff }}** |
 
-## The Importance of Floor Area Ratio (FAR) Near Transit
-
-Our model shows that **{{ far_bump_units }}** new homes accounting for **{{ pct_far_bump }}%** of the housing unlocked in our SB 79 scenario do not require further zoning changes beyond what the BUILD Act proposes. They become financially feasible to build strictly by allowing a higher FAR.
-
 <br>
 
 *Use the layer toggle on the interactive map below to switch between the different transit-oriented density scenarios and see exactly how housing capacity shifts across Chicago's neighborhoods.*

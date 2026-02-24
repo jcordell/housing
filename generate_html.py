@@ -163,7 +163,9 @@ We calculated the following housing capacity increases for each proposal:
 
 ## The Importance of Floor Area Ratio (FAR) Near Transit
 
-Our model shows that **{{ far_bump_units }}** new homes accounting for **{{ pct_far_bump }}%** of the housing unlocked in our SB 79 scenario do not require further zoning changes beyond what the BUILD Act proposes. They become financially feasible to build strictly by allowing a higher FAR.
+BUILD act appears to currently set FAR to 1.5. SB79 set FAR to 3.0 for projects near transit, scaling up to 4.0 with projects directly next to transit.
+
+Our model shows that **{{ far_bump_units }}** new homes accounting for **{{ pct_far_bump }}%** of the housing unlocked in our SB 79 scenario do not require further zoning changes beyond what the BUILD Act proposes. They become financially feasible to build strictly by allowing a higher FAR (3.0 within 1/2 mile of transit).
 
 <br>
 
