@@ -93,12 +93,44 @@ def get_financial_filter_ctes(source_table_name, eco):
                 (area_sqft * {far_hf}) as gsf_hf,
                 (area_sqft * {far_combo}) as gsf_combo,
 
-                ((area_sqft * {far_curr}) * {eff}) as nra_curr,
-                ((area_sqft * {far_pritzker}) * {eff}) as nra_pritzker,
-                ((area_sqft * {far_sb79}) * {eff}) as nra_sb79,
-                ((area_sqft * {far_train}) * {eff}) as nra_train,
-                ((area_sqft * {far_hf}) * {eff}) as nra_hf,
-                ((area_sqft * {far_combo}) * {eff}) as nra_combo
+                -- Current Rules (Double Stair Penalty)
+                ((area_sqft * {far_curr}) * CASE WHEN cap_curr <= 2 THEN 0.90
+                         WHEN cap_curr <= 4 THEN 0.75
+                         WHEN cap_curr <= 9 THEN 0.78
+                         WHEN cap_curr <= 19 THEN 0.80
+                         ELSE 0.82 END
+                ) as nra_curr,
+
+                -- Pritzker & SB79 Rules (Single Stair Bump)
+                ((area_sqft * {far_pritzker}) * CASE WHEN cap_pritzker <= 2 THEN 0.90
+                         WHEN cap_pritzker <= 6 THEN 0.87
+                         WHEN cap_pritzker <= 15 THEN 0.85
+                         ELSE 0.82 END
+                ) as nra_pritzker,
+
+                ((area_sqft * {far_sb79}) * CASE WHEN cap_sb79 <= 2 THEN 0.90
+                         WHEN cap_sb79 <= 6 THEN 0.87
+                         WHEN cap_sb79 <= 15 THEN 0.85
+                         ELSE 0.82 END
+                ) as nra_sb79,
+
+                ((area_sqft * {far_train}) * CASE WHEN cap_train_only <= 2 THEN 0.90
+                         WHEN cap_train_only <= 6 THEN 0.87
+                         WHEN cap_train_only <= 15 THEN 0.85
+                         ELSE 0.82 END
+                ) as nra_train,
+
+                ((area_sqft * {far_hf}) * CASE WHEN cap_train_hf <= 2 THEN 0.90
+                         WHEN cap_train_hf <= 6 THEN 0.87
+                         WHEN cap_train_hf <= 15 THEN 0.85
+                         ELSE 0.82 END
+                ) as nra_hf,
+
+                ((area_sqft * {far_combo}) * CASE WHEN cap_train_combo <= 2 THEN 0.90
+                         WHEN cap_train_combo <= 6 THEN 0.87
+                         WHEN cap_train_combo <= 15 THEN 0.85
+                         ELSE 0.82 END
+                ) as nra_combo
             FROM capacities
         ),
         revenue_metrics AS (
