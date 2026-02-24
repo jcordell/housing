@@ -41,7 +41,7 @@ economic_assumptions:
   far_hf: 2.5
   far_combo: 2.5
   efficiency_factor: 0.82
-  min_unit_size_sqft: 600.0
+  min_unit_size_sqft: 700.0
   default_condo_price_per_sqft: 350.0
   const_cost_per_sqft_high: 300.0
   const_cost_per_sqft_low: 240.0

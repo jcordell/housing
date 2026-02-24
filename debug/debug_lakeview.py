@@ -2,6 +2,8 @@ import duckdb
 import pandas as pd
 import yaml
 
+neighborhood = 'LOGAN SQUARE'
+
 def load_config():
     with open('config.yaml', 'r') as f:
         return yaml.safe_load(f)
@@ -13,7 +15,7 @@ def run_lakeview_debug():
     target_margin = config['economic_assumptions']['target_profit_margin']
 
     print("\n" + "="*80)
-    print("1. LAKEVIEW FUNNEL: Where are lots dying?")
+    print(f"""1. {neighborhood} FUNNEL: Where are lots dying?""")
     print("="*80)
 
     funnel_query = f"""
@@ -26,7 +28,7 @@ def run_lakeview_debug():
             SUM(CAST((rev_pritzker > cost_pritzker * {target_margin}) AS INT)) as profitable_pritzker,
             SUM(CAST((rev_sb79 > cost_sb79 * {target_margin}) AS INT)) as profitable_sb79
         FROM step5_pro_forma
-        WHERE neighborhood_name = 'LAKE VIEW'
+        WHERE neighborhood_name = '{neighborhood}'
     """
     df_funnel = con.execute(funnel_query).df()
     print(df_funnel.to_string(index=False))
@@ -35,7 +37,7 @@ def run_lakeview_debug():
     print("2. UNIT ECONOMICS: The Per-Square-Foot Reality (Averages)")
     print("="*80)
 
-    econ_query = """
+    econ_query = f"""
         SELECT
             COUNT(*) as lot_count,
             ROUND(AVG(area_sqft), 0) as avg_lot_sqft,
@@ -44,7 +46,7 @@ def run_lakeview_debug():
             ROUND(AVG(condo_price_per_sqft), 2) as expected_condo_sell_ppsf,
             ROUND(AVG(market_correction_multiplier), 2) as avg_assessor_multiplier
         FROM step5_pro_forma
-        WHERE neighborhood_name = 'LAKE VIEW'
+        WHERE neighborhood_name = '{neighborhood}'
           AND pass_zoning_class AND pass_prop_class AND pass_min_value AND pass_age_value AND pass_max_units AND pass_lot_density
     """
     df_econ = con.execute(econ_query).df()
@@ -67,7 +69,7 @@ def run_lakeview_debug():
             ROUND(rev_curr, 0) as total_revenue,
             ROUND(rev_curr / cost_curr, 3) as raw_roi
         FROM step5_pro_forma
-        WHERE neighborhood_name = 'LAKE VIEW'
+        WHERE neighborhood_name = '{neighborhood}'
           AND pass_zoning_class AND pass_prop_class AND pass_min_value AND pass_age_value AND pass_max_units AND pass_lot_density
           AND current_capacity > existing_units
           AND (rev_curr / cost_curr) < {target_margin}
@@ -100,7 +102,7 @@ def run_lakeview_debug():
             ROUND(rev_pritzker, 0) as total_revenue,
             ROUND(rev_pritzker / cost_pritzker, 3) as raw_roi
         FROM step5_pro_forma
-        WHERE neighborhood_name = 'LAKE VIEW'
+        WHERE neighborhood_name = '{neighborhood}'
           AND pass_zoning_class AND pass_prop_class AND pass_min_value AND pass_age_value AND pass_max_units AND pass_lot_density
           AND pritzker_capacity > existing_units
           AND (rev_pritzker / cost_pritzker) < {target_margin}
