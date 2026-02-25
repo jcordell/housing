@@ -228,7 +228,7 @@ def generate_html_article(lots_count, lost_tax, new_units, bldg_value, upzoned_t
 
 In high-demand areas, wealthy homeowners frequently purchase adjacent tear-down properties, demolish the existing structures, and absorb the parcels as massive private side yards. Because property taxes in Illinois assess vacant land drastically lower than built homes, these homeowners pay a fraction of the tax per square foot compared to their own primary residence.  Chicago effectively subsidizes these rich home owners to keep the lot empty as redeveloping the property would bring in more property taxes.
 
-Our analysis found **{{ lots_count }}** adjacent empty lots owned by neighbors in just the Lincoln Park, Lakeview, Logan Square, and West Town neighborhoods. This is likely a significant underestimate, as there are plenty of side lots lots which don't automatically match the filters described in the next section.
+Our analysis found **{{ lots_count }}** adjacent empty lots owned by neighbors in just the Lincoln Park, Lakeview, Logan Square, and West Town neighborhoods. This is likely an underestimate, as there are plenty of side lots lots which don't automatically match the filters described in the next section.
 
 ## Analysis and Methodology: Defining the "Side Yard"
 
@@ -255,7 +255,7 @@ But the true "opportunity subsidy" is much higher. By allowing these parcels to 
 
 ## The Solution
 
-To address this disparity, Illinois should implement a split-roll classification for residential properties: increasing the assessment rate for vacant land to 25%. Applying this change to these specific side lots alone would generate **${{ split_roll_gain }}** in immediate annual tax revenue.
+To address this disparity, Chicago should implement a split-roll classification for residential properties: increasing the assessment rate for vacant land to 25%. Applying this change to these specific side lots alone would generate **${{ split_roll_gain }}** in immediate annual tax revenue.
 
 This may also encourage some of these private lot owners to develop the land into housing which further increases the taxes raised in the area and provides much needed homes.
 
