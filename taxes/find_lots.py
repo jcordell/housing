@@ -23,8 +23,7 @@ def find_neighbor_owned_empty_lots():
             WITH target_nbhds AS (
                 SELECT DISTINCT pin10, neighborhood_name, geom_3435, zone_class, area_sqft
                 FROM spatial_base
-                WHERE neighborhood_name IN ('WEST TOWN', 'LINCOLN PARK', 'LOGAN SQUARE',
-                                            'NORTH CENTER', 'LAKE VIEW', 'NEAR WEST SIDE', 'LINCOLN SQUARE')
+                WHERE neighborhood_name IN ('WEST TOWN', 'LINCOLN PARK', 'LOGAN SQUARE', 'LAKE VIEW')
                   -- Strictly limit to Residential Zoning
                   AND zone_class SIMILAR TO '(RS|RT|RM).*'
                 ),
@@ -190,6 +189,12 @@ def find_neighbor_owned_empty_lots():
             total_empty_lots = len(df)
             total_new_units = total_empty_lots * 4
             total_current_taxes = df['Taxes Paid'].sum()
+
+            # Dynamic calculation for new vacant land tax proposal
+            # Current taxes are based on 10% assessment. Increasing to 25% is a 2.5x multiplier.
+            new_vacant_tax_revenue = total_current_taxes * 2.5
+            split_roll_gain = new_vacant_tax_revenue - total_current_taxes
+
             total_upzoned_taxes = total_empty_lots * tax_per_new_4_flat
             total_tax_increase = total_upzoned_taxes - total_current_taxes
 
@@ -204,7 +209,8 @@ def find_neighbor_owned_empty_lots():
                 assumed_luxury_4_flat_value,
                 total_upzoned_taxes,
                 total_tax_increase,
-                pct_under_5
+                pct_under_5,
+                split_roll_gain
             )
 
         else:
@@ -215,37 +221,25 @@ def find_neighbor_owned_empty_lots():
     finally:
         con.close()
 
-def generate_html_article(lots_count, lost_tax, new_units, bldg_value, upzoned_tax, net_tax_increase, pct_under_5_min):
+def generate_html_article(lots_count, lost_tax, new_units, bldg_value, upzoned_tax, net_tax_increase, pct_under_5_min, split_roll_gain):
     markdown_content = """# Subsidizing the Rich: The Hidden Cost of Chicago’s Luxury Side Yards
 
 ![Private basketball court on a side lot](images/basketball.png)
 
-In high-demand areas, wealthy homeowners frequently purchase adjacent tear-down properties, demolish the existing structures, and absorb the parcels as massive private side yards. Because property taxes in Illinois assess vacant land drastically lower than improved land, these homeowners pay a fraction of the tax per square foot compared to their own primary residence.  Chicago effectively subsidizes these rich home owners to keep the lot empty as redeveloping the property would bring in more property taxes.
+In high-demand areas, wealthy homeowners frequently purchase adjacent tear-down properties, demolish the existing structures, and absorb the parcels as massive private side yards. Because property taxes in Illinois assess vacant land drastically lower than built homes, these homeowners pay a fraction of the tax per square foot compared to their own primary residence.  Chicago effectively subsidizes these rich home owners to keep the lot empty as redeveloping the property would bring in more property taxes.
 
-Our analysis found **{{ lots_count }}** adjacent empty lots owned by neighbors in just five high-demand north and west side neighborhoods. This is likely a significant underestimate, as there are plenty of side lots lots which don't automatically match the filters described in the next section.
+Our analysis found **{{ lots_count }}** adjacent empty lots owned by neighbors in just the Lincoln Park, Lakeview, Logan Square, and West Town neighborhoods. This is likely a significant underestimate, as there are plenty of side lots lots which don't automatically match the filters described in the next section.
 
 ## Analysis and Methodology: Defining the "Side Yard"
 
-An empty lot is only counted if it passes a strict set of spatial, legal, and economic filters:
+To be classified as a "Side Yard," an empty lot must:
 
-### 1. Spatial & Zoning Filters
-* **Residential Zoning:** The lot must be zoned exclusively for residential use (`RS`, `RT`, or `RM`).
-* **Adjacency:** The empty lot and the built lot must be geographically adjacent (intersecting within a 5-foot spatial tolerance).
-
-### 2. Ownership Matching
-* **Taxpayer Verification:** The empty lot and the adjacent home must have the exact same owner.
-
-### 3. Value and Condition Thresholds
-* **The "Empty" Lot:** The side lot must have an estimated building value of <$10,000, signifying it is effectively vacant or a demolished teardown. It must also have a Cook County Assessor property class corresponding to vacant land or uninhabitable teardowns.
-* **The Primary Residence:** The adjacent home owned by the same taxpayer must have an estimated market value of at least $500,000, ensuring we are capturing high-value property expansions rather than distressed blocks.
-
-I then manually verified the list and removed some outliers or lots that have been developed since the data was last updated.
+* Be zoned for residential use and sit geographically adjacent to a built lot within a 5-foot spatial tolerance.
+* Be registered to the exact same taxpayer as the adjacent primary residence.
+* Possess an estimated building value under $10,000 and a Cook County Assessor property class designated as vacant land or an uninhabitable teardown.
+* Sit next to a primary home with an estimated market value of at least $500,000.
 
 ## The Cost of the Status Quo
-If these vacant side lots were taxed at the exact same rate per square foot as the neighboring home they are attached to, the city would collect an estimated **${{ lost_tax }}** in additional property taxes every single year.
-
-## The Upzoning Solution
-Illinois law makes it difficult to heavily tax vacant residential land based purely on highest-and-best-use due to constitutional uniformity clauses. However, upzoning provides a legal pathway to raise some taxes. The recently announced BUILD act legalizes 4 unit condos on these parcels by-right, which will increase the underlying land value. The property taxes will rise organically, and owners to either pay a slightly larger (but still heavily subsidized) premium for their private park or sell it to a developer.
 
 <div class="callout">
 Every year a luxury side yard remains a private park, we lose <strong>${{ lost_tax }}</strong> in direct revenue because these lots are taxed as "vacant" rather than as the high-value residential land they actually serve as. 
@@ -256,14 +250,21 @@ But the true "opportunity subsidy" is much higher. By allowing these parcels to 
 <br>
 <br>
 
-<strong>Chicago is subsidizing the exclusivity of the wealthy over $23 million every single year while missing out on {{ new_units }} much needed houses.</strong>
+<strong>Chicago is subsidizing the exclusivity of the wealthy nearly $20 million every single year while missing out on {{ new_units }} much needed houses.</strong>
 </div>
+
+## The Solution
+
+To address this disparity, Illinois should implement a split-roll classification for residential properties: increasing the assessment rate for vacant land to 25%. Applying this change to these specific side lots alone would generate **${{ split_roll_gain }}** in immediate annual tax revenue.
+
+This may also encourage some of these private lot owners to develop the land into housing which further increases the taxes raised in the area and provides much needed homes.
 
 ## Park Proximity
 
-Even if owners choose to sell rather than pay the slightly increased tax rate, they stand to gain significantly from the increased land value that comes with higher-density zoning.  And while they might lose their private green space, **{{ pct_under_5_min }}%** of these lots are a 5 minute or less walk from the nearest park. Some of them are even directly next to a park, like this one in Lakeview East.
+While some these homes may need to sell their side lots if they have to start paying a fairer share, many of these homes still have private front or back yards, balconies, and rooftop decks. And **{{ pct_under_5_min }}%** of these lots are a 5 minute or less walk from the nearest park. Some of them are even directly next to a park, like this one in Lakeview East.
 
 ![View of an empty lot from a park](images/from-park.png)
+
 """
 
     template_data = {
@@ -273,7 +274,8 @@ Even if owners choose to sell rather than pay the slightly increased tax rate, t
         'bldg_value': f"{bldg_value:,.0f}",
         'upzoned_tax': f"{upzoned_tax:,.0f}",
         'net_tax_increase': f"{net_tax_increase:,.0f}",
-        'pct_under_5_min': pct_under_5_min
+        'pct_under_5_min': pct_under_5_min,
+        'split_roll_gain': f"{split_roll_gain:,.0f}"
     }
 
     jinja_template = Template(markdown_content)
