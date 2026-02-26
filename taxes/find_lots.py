@@ -133,6 +133,8 @@ def find_neighbor_owned_empty_lots():
                 GREATEST(0, expected_proportional_tax - "Taxes Paid") AS "Lost Tax",
                 dist_to_park
             FROM matched_lots
+            WHERE "Taxes Paid" > 10
+              AND "Neighbor Est Price" < 30000000
             ORDER BY "Lost Tax" DESC; \
             """
 
@@ -222,13 +224,17 @@ def find_neighbor_owned_empty_lots():
         con.close()
 
 def generate_html_article(lots_count, lost_tax, new_units, bldg_value, upzoned_tax, net_tax_increase, pct_under_5_min, split_roll_gain):
-    markdown_content = """# Subsidizing the Rich: The Hidden Cost of Chicago’s Luxury Side Yards
+
+    total_subsidy_millions = int(round(net_tax_increase / 1_000_000))
+    subsidy_per_yard_thousands = int(round((net_tax_increase / lots_count) / 1000) * 1000)
+
+    markdown_content = """# How Chicago Pays $17M a Year to Subsidize Private Yards for the Rich
 
 ![Private basketball court on a side lot](images/basketball.png)
 
 In high-demand areas, wealthy homeowners frequently purchase adjacent tear-down properties, demolish the existing structures, and absorb the parcels as massive private side yards. Because property taxes in Illinois assess vacant land drastically lower than built homes, these homeowners pay a fraction of the tax per square foot compared to their own primary residence.  Chicago effectively subsidizes these rich home owners to keep the lot empty as redeveloping the property would bring in more property taxes.
 
-Our analysis found **{{ lots_count }}** adjacent empty lots owned by neighbors in just the Lincoln Park, Lakeview, Logan Square, and West Town neighborhoods. This is likely an underestimate, as there are plenty of side lots lots which don't automatically match the filters described in the next section.
+Our analysis found **{{ lots_count }}** adjacent empty lots owned by neighbors in just the Lincoln Park, Lakeview, Logan Square, and West Town neighborhoods. This is likely a ~50% underestimate, as there are plenty of side lots lots which don't automatically match the filters described in the next section.
 
 ## Analysis and Methodology: Defining the "Side Yard"
 
@@ -250,7 +256,7 @@ But the true "opportunity subsidy" is much higher. By allowing these parcels to 
 <br>
 <br>
 
-<strong>Chicago is subsidizing the exclusivity of the wealthy nearly $20 million every single year while missing out on {{ new_units }} much needed houses.</strong>
+<strong>Chicago is subsidizing the exclusivity of the wealthy ${{ total_subsidy_millions }} million every single year, or ${{ subsidy_per_yard_thousands }} per yard, while missing out on {{ new_units }} much needed houses.</strong>
 </div>
 
 ## The Solution
@@ -261,7 +267,7 @@ This may also encourage some of these private lot owners to develop the land int
 
 ## Park Proximity
 
-While some these homes may need to sell their side lots if they have to start paying a fairer share, many of these homes still have private front or back yards, balconies, and rooftop decks. And **{{ pct_under_5_min }}%** of these lots are a 5 minute or less walk from the nearest park. Some of them are even directly next to a park, like this one in Lakeview East.
+While some these homes may need to sell their side lots if they have to start paying a fairer share, many of these homes still have private front or back yards, balconies, and rooftop decks. And **{{ pct_under_5_min }}% of these lots are a 5 minute or less walk from the nearest park**. Some of them are even directly next to a park, like this house with two side yards in Lakeview East.
 
 ![View of an empty lot from a park](images/from-park.png)
 
@@ -275,7 +281,9 @@ While some these homes may need to sell their side lots if they have to start pa
         'upzoned_tax': f"{upzoned_tax:,.0f}",
         'net_tax_increase': f"{net_tax_increase:,.0f}",
         'pct_under_5_min': pct_under_5_min,
-        'split_roll_gain': f"{split_roll_gain:,.0f}"
+        'split_roll_gain': f"{split_roll_gain:,.0f}",
+        'total_subsidy_millions': f"{total_subsidy_millions:,}",
+        'subsidy_per_yard_thousands': f"{subsidy_per_yard_thousands:,}"
     }
 
     jinja_template = Template(markdown_content)
@@ -288,7 +296,7 @@ While some these homes may need to sell their side lots if they have to start pa
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>The Side Yard Subsidy</title>
+        <title>The Private Yard Tax Break</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <style>
             .prose h1 {{ font-size: 2.25rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937; line-height: 1.2; }}
